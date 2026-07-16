@@ -170,7 +170,19 @@ function taskRow(lab: Lab, entry: TaskEntry): HTMLElement {
     if (!verdict) throw new Error("вердикта ещё нет — задание не решено");
     const signature = optional(verdict.signature);
     if (!signature) throw new Error("вердикт есть, подписи ещё нет — канистра подпишет в течение тика");
-    const decided = Object.keys(verdict.outcome)[0];
+    // The canister signs ITS verdict. Asking for the other outcome builds a
+    // different message, so the signature stops verifying and the ed25519
+    // precompile fails with InvalidSignature — which is the guarantee working,
+    // not a bug. Say that instead of shipping a doomed transaction.
+    const decided = Object.keys(verdict.outcome)[0] ?? "?";
+    const decidedOutcome = "settle" in verdict.outcome ? 0 : 1;
+    if (decidedOutcome !== outcome) {
+      throw new Error(
+        `вердикт канистры — ${decided}, а claim(${outcome}) просит ` +
+          `${outcome === 0 ? "settle" : "cancel"}: подпись под один исход не открывает другой. ` +
+          `Это и есть гарантия игры — жми claim(${decidedOutcome}).`,
+      );
+    }
     log(`вердикт канистры: ${decided}`, "muted");
 
     const payer = selectedSigner(lab, voter);

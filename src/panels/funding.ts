@@ -142,10 +142,22 @@ function collectionRow(lab: Lab, entry: CollectionEntry): HTMLElement {
       nonce: BigInt(contribution.nonce),
     });
     if ("Err" in out) throw new Error(`request_signature: ${out.Err}`);
-    const verdictName = Object.keys(out.Ok.outcome)[0];
+    const verdictName = Object.keys(out.Ok.outcome)[0] ?? "?";
     const escrowFromCanister = new PublicKey(asBytes(out.Ok.escrow)).toBase58();
     if (escrowFromCanister !== contribution.escrow) {
       throw new Error(`канистра вывела другой эскроу: ${escrowFromCanister}`);
+    }
+    // One verdict decides the whole collection, and the canister signs only
+    // that one. Requesting the other outcome builds a different message, the
+    // signature stops verifying, and the ed25519 precompile answers
+    // InvalidSignature — the guarantee working, not a bug.
+    const decidedOutcome = "settle" in out.Ok.outcome ? 0 : 1;
+    if (decidedOutcome !== outcome) {
+      throw new Error(
+        `вердикт коллекции — ${verdictName}, а claim(${outcome}) просит ` +
+          `${outcome === 0 ? "settle" : "refund"}: подпись под один исход не открывает другой. ` +
+          `Это и есть гарантия игры — жми claim(${decidedOutcome}).`,
+      );
     }
     log(`вердикт коллекции: ${verdictName}; подпись выдана для ${short(contribution.escrow)}`, "muted");
 
