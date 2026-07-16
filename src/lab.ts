@@ -113,6 +113,23 @@ export function allParticipants(lab: Lab): Signer[] {
   return [...connectedWallets, ...lab.participants];
 }
 
+const ACTIVE_KEY = "crown-lab:active";
+
+/**
+ * The participant every dropdown starts on. Several wallets and burners are
+ * connected at once on purpose — one operator plays a four-party scenario —
+ * so "who am I right now" is an explicit choice, not the first row by luck.
+ */
+export function activeParticipant(lab: Lab): Signer | null {
+  const participants = allParticipants(lab);
+  const stored = localStorage.getItem(ACTIVE_KEY);
+  return participants.find((signer) => signer.address === stored) ?? participants[0] ?? null;
+}
+
+export function setActiveParticipant(address: string): void {
+  localStorage.setItem(ACTIVE_KEY, address);
+}
+
 export function participantByAddress(lab: Lab, address: string): Signer {
   const found = allParticipants(lab).find((signer) => signer.address === address);
   if (!found) throw new Error(`участник ${address} не подключён`);

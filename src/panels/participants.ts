@@ -3,7 +3,14 @@
 
 import { PublicKey } from "@solana/web3.js";
 
-import { type Lab, allParticipants, connectedWallets, participantByAddress } from "../lab.ts";
+import {
+  type Lab,
+  activeParticipant,
+  allParticipants,
+  connectedWallets,
+  participantByAddress,
+  setActiveParticipant,
+} from "../lab.ts";
 import { type Balances, balancesOf, explorerAddress, explorerTx, formatSol, formatUsdc, fund } from "../net.ts";
 import { type Signer, burnerSigner, importBurner, loadBurners, newBurner, saveBurners } from "../signer.ts";
 import { discoverWallets, solanaChainOf } from "../wallet.ts";
@@ -16,11 +23,16 @@ const reputation = new Map<string, bigint>();
 /** Whose book we are looking at: reputation is always local to a streamer. */
 let bookStreamer: string | null = null;
 
+/** A dropdown of participants; without an explicit pick it starts on the active one. */
 export function participantSelect(lab: Lab, selected?: string): HTMLSelectElement {
   const select = el("select");
+  const fallback = selected ?? activeParticipant(lab)?.address;
   for (const signer of allParticipants(lab)) {
-    const option = el("option", { value: signer.address, textContent: `${signer.label} (${short(signer.address)})` });
-    if (signer.address === selected) option.selected = true;
+    const option = el("option", {
+      value: signer.address,
+      textContent: `${signer.label} (${short(signer.address)})`,
+    });
+    if (signer.address === fallback) option.selected = true;
     select.append(option);
   }
   if (select.options.length === 0) select.append(el("option", { value: "", textContent: "— нет участников —" }));
@@ -61,9 +73,12 @@ export function participantsPanel(lab: Lab): HTMLElement {
   });
   const streamerLabel = allParticipants(lab).find((signer) => signer.address === bookStreamer);
 
+  const active = activeParticipant(lab);
+
   const table = el("table", {}, [
     el("thead", {}, [
       el("tr", {}, [
+        el("th", { textContent: "" }),
         el("th", { textContent: "участник" }),
         el("th", { textContent: "тип" }),
         el("th", { textContent: "адрес" }),
@@ -77,6 +92,17 @@ export function participantsPanel(lab: Lab): HTMLElement {
   const body = el("tbody");
   for (const signer of allParticipants(lab)) {
     const balances = cache.get(signer.address);
+    const isActive = active?.address === signer.address;
+    const pick = el("td");
+    pick.append(
+      isActive
+        ? span("● активен", "ok")
+        : button("перейти", () => {
+            setActiveParticipant(signer.address);
+            log(`активный участник: ${signer.label} (${signer.address})`, "ok");
+            lab.refresh();
+          }),
+    );
     const actions = el("td");
     if (signer.kind === "burner") {
       actions.append(
@@ -95,6 +121,7 @@ export function participantsPanel(lab: Lab): HTMLElement {
     const enough = rep !== undefined && rep >= 100_000n;
     body.append(
       el("tr", {}, [
+        pick,
         el("td", { textContent: signer.label }),
         el("td", {}, [span(signer.kind === "wallet" ? "кошелёк" : "burner", "pill")]),
         el("td", {}, [link(short(signer.address), explorerAddress(signer.address))]),
@@ -125,13 +152,29 @@ export function participantsPanel(lab: Lab): HTMLElement {
   }
   for (const wallet of wallets) {
     const connect = button(`подключить ${wallet.name}`, async () => {
-      const signer = await wallet.connect();
-      if (connectedWallets.some((existing) => existing.address === signer.address)) {
-        log(`${signer.label} уже подключён`, "muted");
-        return;
+      const signers = await wallet.connect();
+      const added = signers.filter(
+        (signer) => !connectedWallets.some((existing) => existing.address === signer.address),
+      );
+      connectedWallets.push(...added);
+      // Wallets and burners coexist: connecting a second wallet never
+      // replaces the first, it joins the list.
+      for (const signer of added) log(`подключён ${signer.label}: ${signer.address}`, "ok");
+      if (added.length === 0) {
+        log(`${wallet.name}: эти аккаунты уже подключены. Чтобы добавить другой — переключи аккаунт в расширении`, "muted");
       }
-      connectedWallets.push(signer);
-      log(`подключён ${signer.label}: ${signer.address}`, "ok");
+      // The extension may switch account later; pick that up without a reload.
+      wallet.onChange(() => {
+        void (async () => {
+          const current = await wallet.connect();
+          const fresh = current.filter(
+            (signer) => !connectedWallets.some((existing) => existing.address === signer.address),
+          );
+          connectedWallets.push(...fresh);
+          for (const signer of fresh) log(`${wallet.name}: добавлен аккаунт ${signer.address}`, "ok");
+          lab.refresh();
+        })();
+      });
       await refreshBalances(lab);
     });
     if (wallet.blocked) {

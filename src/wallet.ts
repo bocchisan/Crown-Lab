@@ -23,8 +23,13 @@ interface SignTransactionFeature {
 }
 
 const CONNECT = "standard:connect";
+const EVENTS = "standard:events";
 const SIGN_MESSAGE = "solana:signMessage";
 const SIGN_TRANSACTION = "solana:signTransaction";
+
+interface EventsFeature {
+  on(event: "change", listener: (properties: { accounts?: readonly WalletAccount[] }) => void): () => void;
+}
 
 /** "solana-devnet" -> "solana:devnet", the Wallet Standard chain id. */
 export function solanaChainOf(chainId: string): string {
@@ -36,7 +41,14 @@ export interface DiscoveredWallet {
   icon: string;
   /** Why this wallet cannot be used, when it cannot; empty otherwise. */
   blocked: string;
-  connect(): Promise<Signer>;
+  /** Every account the wallet hands over — a wallet may authorize several. */
+  connect(): Promise<Signer[]>;
+  /**
+   * Fires when the extension's accounts change (the user switched account or
+   * revoked one). Without it, switching account in Phantom leaves the page
+   * signing as the old one.
+   */
+  onChange(listener: () => void): void;
 }
 
 /**
@@ -101,28 +113,38 @@ export function discoverWallets(solanaChain: string): DiscoveredWallet[] {
         icon: wallet.icon,
         blocked: missing.length > 0 ? `нет ${missing.join(", ")}` : "",
         connect: () => connect(wallet, solanaChain),
+        onChange: (listener) => {
+          const events = wallet.features[EVENTS] as EventsFeature | undefined;
+          events?.on("change", listener);
+        },
       };
     });
 }
 
-async function connect(wallet: Wallet, solanaChain: string): Promise<Signer> {
+/**
+ * Connects and returns a signer per account. Accounts naming our cluster come
+ * first, but none is dropped: several wallets list only `solana:mainnet` on
+ * the account and still sign devnet fine, and refusing them would look to the
+ * operator like the wallet simply does not work.
+ */
+async function connect(wallet: Wallet, solanaChain: string): Promise<Signer[]> {
   const { accounts } = await (wallet.features[CONNECT] as ConnectFeature).connect();
-  // Prefer the account that names our cluster; some wallets list only
-  // `solana:mainnet` on the account yet sign devnet perfectly well, so the
-  // first account is a better answer than refusing to connect.
-  const account =
-    accounts.find((candidate) =>
-      candidate.chains.includes(solanaChain as WalletAccount["chains"][number]),
-    ) ?? accounts[0];
-  if (!account) throw new Error(`${wallet.name}: кошелёк не дал ни одного аккаунта`);
+  if (accounts.length === 0) throw new Error(`${wallet.name}: кошелёк не дал ни одного аккаунта`);
+  const ours = (account: WalletAccount): boolean =>
+    account.chains.includes(solanaChain as WalletAccount["chains"][number]);
+  const ordered = [...accounts].sort((a, b) => Number(ours(b)) - Number(ours(a)));
+  return ordered.map((account) => signerOf(wallet, account, solanaChain));
+}
 
+function signerOf(wallet: Wallet, account: WalletAccount, solanaChain: string): Signer {
   const signMessageFeature = wallet.features[SIGN_MESSAGE] as SignMessageFeature | undefined;
   const signTransactionFeature = wallet.features[SIGN_TRANSACTION] as SignTransactionFeature | undefined;
   const provider = legacyProviderOf(wallet.name);
 
   return {
     kind: "wallet",
-    label: wallet.name,
+    // Several accounts of one wallet must not read as one participant.
+    label: account.label ? `${wallet.name}: ${account.label}` : wallet.name,
     address: account.address,
     publicKey: new Uint8Array(account.publicKey),
     async signMessage(message) {
