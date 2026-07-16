@@ -102,9 +102,9 @@ test("action and choice words are pinned", () => {
  * messages are text. Phantom's `isSafeMessage` — read out of the installed
  * extension (26.21.1): `isValidUTF8(bytes)` first, then a check that the bytes
  * do not deserialize into a transaction carrying instructions — rejects
- * anything else with "You cannot sign solana transactions using sign message".
- * The old binary format failed the UTF-8 half, so the game was unplayable with
- * the largest Solana wallet.
+ * anything else with "You cannot sign solana transactions using sign message" —
+ * a binary format would make the game unplayable with the largest Solana
+ * wallet.
  *
  * This pins the requirement, not their code.
  */
