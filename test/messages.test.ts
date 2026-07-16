@@ -6,11 +6,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { PublicKey } from "@solana/web3.js";
+import { Message, PublicKey, VersionedMessage } from "@solana/web3.js";
 
-import { concat, hex, lp, u8, u16le, u32le, u64le, u128le, utf8 } from "../src/bytes.ts";
+import { concat, hex, lp, u8, u16le, u32le, u64le, utf8 } from "../src/bytes.ts";
 import {
-  TASK_ACTION,
   TASK_CHOICE,
   FUNDING_ACTION,
   FUNDING_CHOICE,
@@ -20,75 +19,120 @@ import {
   collectionId,
   collectionMessage,
   createPayload,
-  registerPayload,
   releaseMessage,
   taskMessage,
   twoOutcomeVerdictMessage,
 } from "../src/messages.ts";
 
-// Mirror of task_message_layout_is_pinned (Conditional-Tasks auth.rs).
-test("task message layout is pinned", () => {
-  const message = taskMessage(
-    "solana-devnet",
-    new Uint8Array([0xaa, 0xbb]),
-    new Uint8Array([0xcc]),
-    TASK_ACTION.accept,
-    new Uint8Array(),
+// The canister's own unit vectors (Conditional-Tasks canister/src/auth.rs:
+// accept_message_is_pinned, register_message_is_pinned, vote_message_is_pinned,
+// channel_message_is_pinned). If these two ever disagree, every signature this
+// page produces is rejected — so the strings are compared literally.
+const CANISTER = "vizcg-th777-77774-qaaea-cai";
+/** base58 of [0xCC; 32]. */
+const TASK_B58 = "EnTJCS15dqbDTU2XywYSMaScoPv4Py4GzExrtY9DQxoD";
+const TASK_ID = new Uint8Array(32).fill(0xcc);
+
+const text = (message: Uint8Array): string => new TextDecoder().decode(message);
+
+test("accept message matches the canister's vector", () => {
+  assert.equal(
+    text(taskMessage("solana-devnet", CANISTER, TASK_ID, { kind: "accept" })),
+    "crown:conditional-tasks:v1\n" +
+      "action: accept\n" +
+      "chain: solana-devnet\n" +
+      `canister: ${CANISTER}\n` +
+      `task: ${TASK_B58}\n`,
   );
-  const expected = concat(
-    utf8("crown:conditional-tasks:v1"),
-    u32le(13),
-    utf8("solana-devnet"),
-    u32le(2),
-    new Uint8Array([0xaa, 0xbb]),
-    u32le(1),
-    new Uint8Array([0xcc]),
-    u8(1),
-    u32le(0),
-  );
-  assert.equal(hex(message), hex(expected));
 });
 
-// Mirror of register_payload_layout_is_pinned.
-test("register payload layout is pinned", () => {
-  const payload = registerPayload(new Uint8Array(2).fill(0x11), 300n);
-  const expected = concat(u32le(2), new Uint8Array(2).fill(0x11), u64le(300n));
-  assert.equal(hex(payload), hex(expected));
+test("register message matches the canister's vector", () => {
+  assert.equal(
+    text(
+      taskMessage("solana-devnet", CANISTER, TASK_ID, {
+        kind: "register",
+        textHash: new Uint8Array(2).fill(0x11),
+        duration: 300n,
+      }),
+    ),
+    "crown:conditional-tasks:v1\n" +
+      "action: register\n" +
+      "chain: solana-devnet\n" +
+      `canister: ${CANISTER}\n` +
+      `task: ${TASK_B58}\n` +
+      "text: 1111\n" +
+      "duration: 300\n",
+  );
 });
 
-// Mirror of channel_message_layout_is_pinned.
-test("channel message layout is pinned", () => {
-  const message = channelMessage(
-    "solana-devnet",
-    new Uint8Array([0x01]),
-    new Uint8Array([0x02]),
-    34n,
-    5n,
-    true,
-    7n,
-  );
-  const expected = concat(
-    utf8("crown:conditional-tasks:v1"),
-    u32le(13),
-    utf8("solana-devnet"),
-    u32le(1),
-    new Uint8Array([0x01]),
-    u8(5),
-    u32le(1),
-    new Uint8Array([0x02]),
-    u64le(34n),
-    u128le(5n),
-    u8(1),
-    u64le(7n),
-  );
-  assert.equal(hex(message), hex(expected));
+test("vote message matches the canister's vector", () => {
+  for (const choice of [TASK_CHOICE.done, TASK_CHOICE.notDone]) {
+    assert.equal(
+      text(taskMessage("solana-devnet", CANISTER, TASK_ID, { kind: "vote", choice })),
+      "crown:conditional-tasks:v1\n" +
+        "action: vote\n" +
+        "chain: solana-devnet\n" +
+        `canister: ${CANISTER}\n` +
+        `task: ${TASK_B58}\n` +
+        `choice: ${choice}\n`,
+    );
+  }
 });
 
-test("action and choice bytes are pinned", () => {
-  assert.deepEqual(TASK_ACTION, { register: 0, accept: 1, decline: 2, done: 3, vote: 4, setChannelParams: 5 });
-  assert.deepEqual(TASK_CHOICE, { done: 0, notDone: 1 });
+test("channel message matches the canister's vector", () => {
+  assert.equal(
+    text(channelMessage("solana-devnet", CANISTER, new Uint8Array(32).fill(0x02), 34n, 5n, true, 7n)),
+    "crown:conditional-tasks:v1\n" +
+      "action: set-channel-params\n" +
+      "chain: solana-devnet\n" +
+      `canister: ${CANISTER}\n` +
+      "streamer: 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR\n" +
+      "min_gross: 34\n" +
+      "min_reputation: 5\n" +
+      "enabled: true\n" +
+      "counter: 7\n",
+  );
+});
+
+test("task action and choice words are pinned", () => {
+  assert.deepEqual(TASK_CHOICE, { done: "done", notDone: "not_done" });
   assert.deepEqual(FUNDING_ACTION, { create: 0, released: 1, vote: 2 });
   assert.deepEqual(FUNDING_CHOICE, { released: 0, notReleased: 1 });
+});
+
+/**
+ * The requirement a wallet actually enforces, and the whole reason these
+ * messages are text. Phantom's `isSafeMessage` — read out of the installed
+ * extension (26.21.1): `isValidUTF8(bytes)` first, then a check that the bytes
+ * do not deserialize into a transaction carrying instructions — rejects
+ * anything else with "You cannot sign solana transactions using sign message".
+ * The old binary format failed the UTF-8 half, so the game was unplayable with
+ * the largest Solana wallet.
+ *
+ * This pins the requirement, not their code.
+ */
+test("every Tasks message a wallet must sign is UTF-8 and not a transaction", () => {
+  const messages = [
+    taskMessage("solana-devnet", CANISTER, TASK_ID, { kind: "accept" }),
+    taskMessage("solana-devnet", CANISTER, TASK_ID, { kind: "decline" }),
+    taskMessage("solana-devnet", CANISTER, TASK_ID, { kind: "done" }),
+    taskMessage("solana-devnet", CANISTER, TASK_ID, { kind: "vote", choice: TASK_CHOICE.done }),
+    taskMessage("solana-devnet", CANISTER, TASK_ID, {
+      kind: "register",
+      textHash: new Uint8Array(32).fill(0xff),
+      duration: 18_446_744_073_709_551_615n,
+    }),
+    channelMessage("solana-devnet", CANISTER, new Uint8Array(32).fill(0xff), 34n, 5n, false, 7n),
+  ];
+  for (const message of messages) {
+    // Strict decoding throws on any byte that is not valid UTF-8.
+    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(message);
+    // The text is exactly the bytes signed — nothing lossy in between.
+    assert.equal(hex(utf8(decoded)), hex(message));
+    // And it must stay unreadable as a transaction.
+    assert.throws(() => Message.from(Buffer.from(message)));
+    assert.throws(() => VersionedMessage.deserialize(message));
+  }
 });
 
 // Mirror of collection_message_layout_is_pinned (Conditional-Funding auth.rs).

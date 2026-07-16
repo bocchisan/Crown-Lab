@@ -14,7 +14,7 @@ import { decodeTwoOutcome } from "../escrow.ts";
 import { createAtaIx, ed25519VerifyIx, twoOutcomeClaimIx, twoOutcomeCreateIx, twoOutcomeRefundIx } from "../ix.ts";
 import { type Lab, participantByAddress } from "../lab.ts";
 import { explorerAddress, explorerTx, formatUsdc, send } from "../net.ts";
-import { TASK_ACTION, TASK_CHOICE, registerPayload, taskMessage, twoOutcomeVerdictMessage } from "../messages.ts";
+import { TASK_CHOICE, type TaskAction, taskMessage, twoOutcomeVerdictMessage } from "../messages.ts";
 import { type TaskEntry, load, update } from "../store.ts";
 import { button, el, field, labeled, link, log, logLink, row, section, short, span } from "../ui.ts";
 import { participantSelect, refreshBalances, selectedSigner } from "./participants.ts";
@@ -119,18 +119,13 @@ function taskRow(lab: Lab, entry: TaskEntry): HTMLElement {
   // signature against the streamer stored in the record, nobody else's.
   const call = async (
     method: "accept" | "decline" | "done",
-    action: number,
     signerAddress: string,
   ): Promise<void> => {
     if (!lab.tasks) throw new Error("canister id игры не задан");
     const actual = participantByAddress(lab, signerAddress);
-    const message = taskMessage(
-      lab.chainId,
-      lab.principalBytes("conditionalTasks"),
-      fromHex(entry.taskId),
-      action,
-      new Uint8Array(),
-    );
+    const message = taskMessage(lab.chainId, lab.ids.conditionalTasks, fromHex(entry.taskId), {
+      kind: method,
+    });
     const signature = await actual.signMessage(message);
     const out = await lab.tasks[method]({
       chain: lab.chainId,
@@ -202,14 +197,11 @@ function taskRow(lab: Lab, entry: TaskEntry): HTMLElement {
       if (!lab.tasks) throw new Error("canister id игры не задан");
       const donorSigner = participantByAddress(lab, entry.donor);
       const key = await resolver(lab);
-      const payload = registerPayload(fromHex(entry.textHash), BigInt(entry.duration));
-      const message = taskMessage(
-        lab.chainId,
-        lab.principalBytes("conditionalTasks"),
-        fromHex(entry.taskId),
-        TASK_ACTION.register,
-        payload,
-      );
+      const message = taskMessage(lab.chainId, lab.ids.conditionalTasks, fromHex(entry.taskId), {
+        kind: "register",
+        textHash: fromHex(entry.textHash),
+        duration: BigInt(entry.duration),
+      });
       const signature = await donorSigner.signMessage(message);
       const out = await lab.tasks.register_task({
         chain: lab.chainId,
@@ -227,9 +219,9 @@ function taskRow(lab: Lab, entry: TaskEntry): HTMLElement {
       log(`задание зарегистрировано: task_id ${short(entry.escrow)} (≡ адрес эскроу)`, "ok");
       await showState();
     }),
-    button("3. accept", () => call("accept", TASK_ACTION.accept, entry.streamer)),
-    button("decline", () => call("decline", TASK_ACTION.decline, entry.streamer)),
-    button("4. done", () => call("done", TASK_ACTION.done, entry.streamer)),
+    button("3. accept", () => call("accept", entry.streamer)),
+    button("decline", () => call("decline", entry.streamer)),
+    button("4. done", () => call("done", entry.streamer)),
     labeled("голосует", voter),
     button("5. голос done", () => vote(lab, entry, voter, TASK_CHOICE.done)),
     button("голос not_done", () => vote(lab, entry, voter, TASK_CHOICE.notDone)),
@@ -256,16 +248,18 @@ function taskRow(lab: Lab, entry: TaskEntry): HTMLElement {
   ]);
 }
 
-async function vote(lab: Lab, entry: TaskEntry, select: HTMLSelectElement, choice: number): Promise<void> {
+async function vote(
+  lab: Lab,
+  entry: TaskEntry,
+  select: HTMLSelectElement,
+  choice: (typeof TASK_CHOICE)[keyof typeof TASK_CHOICE],
+): Promise<void> {
   if (!lab.tasks) throw new Error("canister id игры не задан");
   const voter = selectedSigner(lab, select);
-  const message = taskMessage(
-    lab.chainId,
-    lab.principalBytes("conditionalTasks"),
-    fromHex(entry.taskId),
-    TASK_ACTION.vote,
-    new Uint8Array([choice]),
-  );
+  const message = taskMessage(lab.chainId, lab.ids.conditionalTasks, fromHex(entry.taskId), {
+    kind: "vote",
+    choice,
+  });
   const signature = await voter.signMessage(message);
   const out = await lab.tasks.vote({
     chain: lab.chainId,
@@ -275,5 +269,5 @@ async function vote(lab: Lab, entry: TaskEntry, select: HTMLSelectElement, choic
     signature,
   });
   if ("Err" in out) throw new Error(`vote: ${out.Err}`);
-  log(`голос ${choice === TASK_CHOICE.done ? "done" : "not_done"} принят (${voter.label}); вес взят из книги`, "ok");
+  log(`голос ${choice} принят (${voter.label}); вес взят из книги`, "ok");
 }

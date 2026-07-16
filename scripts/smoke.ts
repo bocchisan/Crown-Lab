@@ -11,7 +11,6 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 
 import { HttpAgent } from "@dfinity/agent";
-import { Principal } from "@dfinity/principal";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
@@ -20,7 +19,7 @@ import { fromHex, hex, utf8 } from "../src/bytes.ts";
 import { asBytes, crownIndexActor, decodeTaskRecord, optional, tasksActor } from "../src/canisters.ts";
 import { decodeTwoOutcome } from "../src/escrow.ts";
 import { type ChainAddresses, createAtaIx, donateIx, ed25519VerifyIx, twoOutcomeClaimIx, twoOutcomeCreateIx } from "../src/ix.ts";
-import { TASK_ACTION, TASK_CHOICE, registerPayload, taskMessage, twoOutcomeVerdictMessage } from "../src/messages.ts";
+import { TASK_CHOICE, taskMessage, twoOutcomeVerdictMessage } from "../src/messages.ts";
 import { balancesOf, formatUsdc, send } from "../src/net.ts";
 import { type Signer, burnerSigner } from "../src/signer.ts";
 
@@ -64,7 +63,7 @@ async function main(): Promise<void> {
   const agent = await HttpAgent.create({ host: cfg.ic_host ?? "", shouldFetchRootKey: true });
   const tasks = tasksActor(agent, cfg.conditional_tasks ?? "");
   const index = crownIndexActor(agent, cfg.crown_index ?? "");
-  const canisterId = Principal.fromText(cfg.conditional_tasks ?? "").toUint8Array();
+  const canisterId = cfg.conditional_tasks ?? "";
 
   const donor = keypairSigner(`${homedir()}/.cache/crown-e2e/donor.json`, "донор");
   const streamer = keypairSigner(`${homedir()}/.cache/crown-e2e/streamer.json`, "стример");
@@ -78,6 +77,10 @@ async function main(): Promise<void> {
   console.log(`резолвер игры: ${hex(resolverBytes)}`);
 
   // ---- 1. a direct donate: the reputation the vote is weighed with ----
+  // The book is not assumed empty: it may already carry history from earlier
+  // runs, so every expectation below is relative to this baseline.
+  const baseline = await index.get_reputation(chainId, donor.publicKey, streamer.publicKey);
+  console.log(`книга на старте: ${baseline} (базовая линия)`);
   const before = await balancesOf(connection, streamerKey, addresses.usdc);
   const donateSig = await send(connection, donor, [
     createAtaIx(donorKey, streamerKey, addresses.usdc),
@@ -111,7 +114,12 @@ async function main(): Promise<void> {
   // ---- 3. register, accept, done ----
   const taskId = escrow.toBytes();
   const textHash = sha256(utf8(`crown-lab smoke ${nonce}`));
-  const registerMessage = taskMessage(chainId, canisterId, taskId, TASK_ACTION.register, registerPayload(textHash, DURATION));
+  const registerMessage = taskMessage(chainId, canisterId, taskId, {
+    kind: "register",
+    textHash,
+    duration: DURATION,
+  });
+  console.log(`--- сообщение, которое подписывает кошелёк ---\n${new TextDecoder().decode(registerMessage)}---`);
   const registered = await tasks.register_task({
     chain: chainId,
     donor: donor.publicKey,
@@ -128,11 +136,8 @@ async function main(): Promise<void> {
   if (hex(asBytes(registered.Ok)) !== hex(taskId)) throw new Error("task_id канистры ≠ адрес эскроу");
   console.log("✓ register: task_id канистры == адрес эскроу");
 
-  for (const [method, action] of [
-    ["accept", TASK_ACTION.accept],
-    ["done", TASK_ACTION.done],
-  ] as const) {
-    const message = taskMessage(chainId, canisterId, taskId, action, new Uint8Array());
+  for (const method of ["accept", "done"] as const) {
+    const message = taskMessage(chainId, canisterId, taskId, { kind: method });
     const out = await tasks[method]({ chain: chainId, task_id: taskId, signature: await streamer.signMessage(message) });
     if ("Err" in out) throw new Error(`${method}: ${out.Err}`);
     console.log(`✓ ${method}`);
@@ -140,18 +145,19 @@ async function main(): Promise<void> {
 
   // ---- 4. the book must see the donate before the vote is weighed ----
   process.stdout.write("жду ингеста доната в книгу");
+  const afterIngest = baseline + DONATE;
   let reputation = 0n;
   for (let attempt = 0; attempt < 30; attempt++) {
     reputation = await index.get_reputation(chainId, donor.publicKey, streamer.publicKey);
-    if (reputation >= DONATE) break;
+    if (reputation >= afterIngest) break;
     process.stdout.write(".");
     await sleep(10);
   }
-  console.log(`\nкнига: ${reputation} minor репутации донору`);
-  if (reputation < DONATE) throw new Error("донат не доехал до книги");
+  console.log(`\nкнига: ${reputation}, ожидалось ${afterIngest} (база + донат)`);
+  if (reputation < afterIngest) throw new Error("донат не доехал до книги");
 
   // ---- 5. vote ----
-  const voteMessage = taskMessage(chainId, canisterId, taskId, TASK_ACTION.vote, new Uint8Array([TASK_CHOICE.done]));
+  const voteMessage = taskMessage(chainId, canisterId, taskId, { kind: "vote", choice: TASK_CHOICE.done });
   const voted = await tasks.vote({
     chain: chainId,
     task_id: taskId,
@@ -203,7 +209,7 @@ async function main(): Promise<void> {
   console.log(`✓ стример получил ${formatUsdc(payout)} USDC (gross ${GROSS} − комиссия игры ${fee})`);
 
   // ---- 8. the book credits the DONOR for the game settlement ----
-  const expected = reputation + GROSS - fee;
+  const expected = afterIngest + GROSS - fee;
   process.stdout.write("жду ингеста расчёта игры");
   let final = 0n;
   for (let attempt = 0; attempt < 30; attempt++) {

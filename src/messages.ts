@@ -9,61 +9,94 @@
 
 import { sha256 } from "@noble/hashes/sha2.js";
 import type { PublicKey } from "@solana/web3.js";
+import bs58 from "bs58";
 
-import { concat, lp, u8, u16le, u64le, u128le, utf8 } from "./bytes.ts";
+import { concat, hex, lp, u8, u16le, u64le, utf8 } from "./bytes.ts";
 
 // ---- Tasks (crown:conditional-tasks:v1) ---------------------------------
+//
+// The participant messages of this game are UTF-8 text, mirroring the
+// canister's auth.rs line for line. They are text because wallets refuse to
+// sign anything else: Phantom runs isValidUTF8 over the payload and rejects
+// the rest with "You cannot sign solana transactions using sign message".
+// test/messages.test.ts pins these strings against the canister's own unit
+// vectors and runs them through Phantom's actual guard.
 
 export const TASKS_DOMAIN = "crown:conditional-tasks:v1";
 
-export const TASK_ACTION = {
-  register: 0,
-  accept: 1,
-  decline: 2,
-  done: 3,
-  vote: 4,
-  setChannelParams: 5,
-} as const;
+/** The words the message uses, frozen with the protocol. */
+export const TASK_CHOICE = { done: "done", notDone: "not_done" } as const;
+export type TaskChoiceWord = (typeof TASK_CHOICE)[keyof typeof TASK_CHOICE];
 
-/** The single payload byte of a vote. */
-export const TASK_CHOICE = { done: 0, notDone: 1 } as const;
+export type TaskAction =
+  | { kind: "register"; textHash: Uint8Array; duration: bigint }
+  | { kind: "accept" }
+  | { kind: "decline" }
+  | { kind: "done" }
+  | { kind: "vote"; choice: TaskChoiceWord };
 
-/** DOMAIN ‖ lp(chain) ‖ lp(canister_id) ‖ lp(task_id) ‖ action ‖ lp(payload) */
+/**
+ * crown:conditional-tasks:v1
+ * action: accept
+ * chain: solana-devnet
+ * canister: vizcg-th777-77774-qaaea-cai
+ * task: 3tjoUqMwgUcyfWqYvDMGRY5gBXPNPKyY3gErYhJGqxcu
+ *
+ * `register` adds `text:` (hex) and `duration:`; `vote` adds `choice:`.
+ * The canister derives the same text and verifies the signature over it.
+ */
 export function taskMessage(
   chain: string,
-  canisterId: Uint8Array,
+  canisterId: string,
   taskId: Uint8Array,
-  action: number,
-  payload: Uint8Array,
+  action: TaskAction,
 ): Uint8Array {
-  return concat(utf8(TASKS_DOMAIN), lp(utf8(chain)), lp(canisterId), lp(taskId), u8(action), lp(payload));
+  let out = `${TASKS_DOMAIN}\n`;
+  out += `action: ${action.kind}\n`;
+  out += `chain: ${chain}\n`;
+  out += `canister: ${canisterId}\n`;
+  // task_id ≡ the escrow address: base58 is the form the signer can compare
+  // against an explorer.
+  out += `task: ${bs58.encode(taskId)}\n`;
+  if (action.kind === "register") {
+    out += `text: ${hex(action.textHash)}\n`;
+    out += `duration: ${action.duration}\n`;
+  } else if (action.kind === "vote") {
+    out += `choice: ${action.choice}\n`;
+  }
+  return utf8(out);
 }
 
-/** lp(text_hash) ‖ duration_le — the two facts the task_id does not notarize. */
-export function registerPayload(textHash: Uint8Array, duration: bigint): Uint8Array {
-  return concat(lp(textHash), u64le(duration));
-}
-
-/** DOMAIN ‖ lp(chain) ‖ lp(canister_id) ‖ 5 ‖ lp(streamer) ‖ min_gross_le ‖ min_reputation_le ‖ enabled ‖ counter_le */
+/**
+ * crown:conditional-tasks:v1
+ * action: set-channel-params
+ * chain: solana-devnet
+ * canister: vizcg-th777-77774-qaaea-cai
+ * streamer: Gt381v8RqGQUX7vdRbC9NdZCzGuzk6ZUgcTDLfUnYdcJ
+ * min_gross: 34
+ * min_reputation: 0
+ * enabled: true
+ * counter: 7
+ */
 export function channelMessage(
   chain: string,
-  canisterId: Uint8Array,
+  canisterId: string,
   streamer: Uint8Array,
   minGross: bigint,
   minReputation: bigint,
   enabled: boolean,
   counter: bigint,
 ): Uint8Array {
-  return concat(
-    utf8(TASKS_DOMAIN),
-    lp(utf8(chain)),
-    lp(canisterId),
-    u8(TASK_ACTION.setChannelParams),
-    lp(streamer),
-    u64le(minGross),
-    u128le(minReputation),
-    u8(enabled ? 1 : 0),
-    u64le(counter),
+  return utf8(
+    `${TASKS_DOMAIN}\n` +
+      `action: set-channel-params\n` +
+      `chain: ${chain}\n` +
+      `canister: ${canisterId}\n` +
+      `streamer: ${bs58.encode(streamer)}\n` +
+      `min_gross: ${minGross}\n` +
+      `min_reputation: ${minReputation}\n` +
+      `enabled: ${enabled}\n` +
+      `counter: ${counter}\n`,
   );
 }
 
