@@ -169,3 +169,17 @@ export function decodeStream(data: Uint8Array): StreamEscrow {
 export function chunkDueAt(escrow: StreamEscrow, index: number): bigint {
   return escrow.t0 + BigInt(index) * escrow.period;
 }
+
+/**
+ * A settled escrow is terminal: the settlement swept and closed its USDC
+ * account, so anything sent at it now dies deep inside the program with
+ * "AccountNotInitialized: escrow_usdc" — a true statement about an account
+ * nobody mentioned, and a useless one to read. Say the real thing instead.
+ */
+export function refuseIfSettled(escrow: { settled: boolean }, what: string): void {
+  if (escrow.settled) {
+    throw new Error(
+      `${what}: эскроу уже рассчитан (settled) — деньги ушли первым расчётом, второй раз двигать нечего`,
+    );
+  }
+}

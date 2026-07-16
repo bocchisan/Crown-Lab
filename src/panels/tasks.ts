@@ -10,7 +10,7 @@ import { PublicKey } from "@solana/web3.js";
 
 import { asBytes, decodeTaskRecord, optional } from "../canisters.ts";
 import { fromHex, hex, utf8 } from "../bytes.ts";
-import { decodeTwoOutcome } from "../escrow.ts";
+import { decodeTwoOutcome, refuseIfSettled } from "../escrow.ts";
 import { createAtaIx, ed25519VerifyIx, twoOutcomeClaimIx, twoOutcomeCreateIx, twoOutcomeRefundIx } from "../ix.ts";
 import { type Lab, participantByAddress } from "../lab.ts";
 import { explorerAddress, explorerTx, formatUsdc, send } from "../net.ts";
@@ -158,6 +158,14 @@ function taskRow(lab: Lab, entry: TaskEntry): HTMLElement {
 
   const claim = async (outcome: number): Promise<void> => {
     if (!lab.tasks) throw new Error("canister id игры не задан");
+    // A settled escrow is terminal: say so before spending a round-trip on a
+    // verdict the chain will refuse anyway.
+    const escrow = new PublicKey(entry.escrow);
+    const account = await lab.connection.getAccountInfo(escrow);
+    if (!account) throw new Error("эскроу не найден на чейне");
+    const decoded = decodeTwoOutcome(new Uint8Array(account.data));
+    refuseIfSettled(decoded, "claim");
+
     const verdict = optional(await lab.tasks.get_verdict(lab.chainId, fromHex(entry.taskId)));
     if (!verdict) throw new Error("вердикта ещё нет — задание не решено");
     const signature = optional(verdict.signature);
@@ -165,10 +173,6 @@ function taskRow(lab: Lab, entry: TaskEntry): HTMLElement {
     const decided = Object.keys(verdict.outcome)[0];
     log(`вердикт канистры: ${decided}`, "muted");
 
-    const escrow = new PublicKey(entry.escrow);
-    const account = await lab.connection.getAccountInfo(escrow);
-    if (!account) throw new Error("эскроу не найден на чейне");
-    const decoded = decodeTwoOutcome(new Uint8Array(account.data));
     const payer = selectedSigner(lab, voter);
     const message = twoOutcomeVerdictMessage(lab.domains.twoOutcome, lab.addresses.factoryTwoOutcome, escrow, outcome);
     const tx = await send(lab.connection, payer, [
@@ -233,6 +237,7 @@ function taskRow(lab: Lab, entry: TaskEntry): HTMLElement {
       const account = await lab.connection.getAccountInfo(escrow);
       if (!account) throw new Error("эскроу не найден");
       const decoded = decodeTwoOutcome(new Uint8Array(account.data));
+      refuseIfSettled(decoded, "refund");
       const payer = selectedSigner(lab, voter);
       const tx = await send(lab.connection, payer, [twoOutcomeRefundIx(escrow, decoded, lab.addresses)]);
       logLink("refund(): деньги донору без всякой подписи (только после дедлайна)", "tx", explorerTx(tx), "ok");

@@ -9,7 +9,7 @@ import { PublicKey } from "@solana/web3.js";
 
 import { asBytes } from "../canisters.ts";
 import { fromHex, hex, utf8 } from "../bytes.ts";
-import { chunkDueAt, decodeStream } from "../escrow.ts";
+import { chunkDueAt, decodeStream, refuseIfSettled } from "../escrow.ts";
 import { createAtaIx, ed25519VerifyIx, streamCancelIx, streamCreateIx, streamRefundIx, streamReleaseIx } from "../ix.ts";
 import { type Lab, participantByAddress } from "../lab.ts";
 import { explorerAddress, explorerTx, formatUsdc, send } from "../net.ts";
@@ -128,6 +128,13 @@ function subscriptionRow(lab: Lab, entry: SubscriptionEntry): HTMLElement {
     return decodeStream(new Uint8Array(account.data));
   };
 
+  /** Every money move demands a live escrow; a settled one has no ATA left. */
+  const liveEscrow = async (what: string) => {
+    const escrow = await readEscrow();
+    refuseIfSettled(escrow, what);
+    return escrow;
+  };
+
   const showState = async (): Promise<void> => {
     const escrow = await readEscrow();
     const now = BigInt(Math.floor(Date.now() / 1000));
@@ -150,6 +157,7 @@ function subscriptionRow(lab: Lab, entry: SubscriptionEntry): HTMLElement {
       button("2. выпустить кусок", async () => {
         if (!lab.subscription) throw new Error("canister id игры не задан");
         const index = Number(indexInput.value);
+        await liveEscrow("выпуск куска");
         const out = await lab.subscription.request_release({ ...birthArg(), index });
         if ("Err" in out) throw new Error(`request_release: ${out.Err}`);
         const escrowFromCanister = new PublicKey(asBytes(out.Ok.escrow)).toBase58();
@@ -180,6 +188,7 @@ function subscriptionRow(lab: Lab, entry: SubscriptionEntry): HTMLElement {
         if (!lab.subscription) throw new Error("canister id игры не задан");
         // The donor's word: signed over the escrow address, verified by the
         // canister before it signs the on-chain cancel.
+        await liveEscrow("отмена");
         const donorSigner = participantByAddress(lab, entry.donor);
         const authorization = cancelAuthorization(
           lab.chainId,
@@ -203,7 +212,7 @@ function subscriptionRow(lab: Lab, entry: SubscriptionEntry): HTMLElement {
         await showState();
       }),
       button("refund()", async () => {
-        const escrow = await readEscrow();
+        const escrow = await liveEscrow("refund");
         const payer = selectedSigner(lab, payerSelect);
         const tx = await send(lab.connection, payer, [
           streamRefundIx(new PublicKey(entry.escrow), escrow, lab.addresses),

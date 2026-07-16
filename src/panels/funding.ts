@@ -11,7 +11,7 @@ import { PublicKey } from "@solana/web3.js";
 
 import { asBytes, decodeCollectionRecord, optional } from "../canisters.ts";
 import { fromHex, hex } from "../bytes.ts";
-import { decodeTwoOutcome } from "../escrow.ts";
+import { decodeTwoOutcome, refuseIfSettled } from "../escrow.ts";
 import { createAtaIx, ed25519VerifyIx, twoOutcomeClaimIx, twoOutcomeCreateIx, twoOutcomeRefundIx } from "../ix.ts";
 import { type Lab, participantByAddress } from "../lab.ts";
 import { explorerAddress, explorerTx, formatUsdc, send } from "../net.ts";
@@ -127,6 +127,14 @@ function collectionRow(lab: Lab, entry: CollectionEntry): HTMLElement {
 
   const claimOne = async (contribution: CollectionEntry["contributions"][number], outcome: number): Promise<void> => {
     if (!lab.funding) throw new Error("canister id игры не задан");
+    // Read the escrow first: a settled one is terminal, and asking the
+    // canister for a signature it cannot help with only wastes a round-trip.
+    const escrow = new PublicKey(contribution.escrow);
+    const account = await lab.connection.getAccountInfo(escrow);
+    if (!account) throw new Error("эскроу не найден на чейне");
+    const decoded = decodeTwoOutcome(new Uint8Array(account.data));
+    refuseIfSettled(decoded, "claim");
+
     // The signature is issued on demand: km and resolver come from the
     // canister's record, never from this request.
     const out = await lab.funding.request_signature({
@@ -145,10 +153,6 @@ function collectionRow(lab: Lab, entry: CollectionEntry): HTMLElement {
     }
     log(`вердикт коллекции: ${verdictName}; подпись выдана для ${short(contribution.escrow)}`, "muted");
 
-    const escrow = new PublicKey(contribution.escrow);
-    const account = await lab.connection.getAccountInfo(escrow);
-    if (!account) throw new Error("эскроу не найден на чейне");
-    const decoded = decodeTwoOutcome(new Uint8Array(account.data));
     const payer = selectedSigner(lab, voter);
     const message = twoOutcomeVerdictMessage(lab.domains.twoOutcome, lab.addresses.factoryTwoOutcome, escrow, outcome);
     const tx = await send(lab.connection, payer, [
@@ -184,6 +188,7 @@ function collectionRow(lab: Lab, entry: CollectionEntry): HTMLElement {
           const account = await lab.connection.getAccountInfo(escrow);
           if (!account) throw new Error("эскроу не найден");
           const decoded = decodeTwoOutcome(new Uint8Array(account.data));
+          refuseIfSettled(decoded, "refund");
           const payer = selectedSigner(lab, voter);
           const tx = await send(lab.connection, payer, [twoOutcomeRefundIx(escrow, decoded, lab.addresses)]);
           logLink("refund(): вклад вернулся мимо игры", "tx", explorerTx(tx), "ok");
