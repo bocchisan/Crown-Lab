@@ -107,16 +107,27 @@ async function main(): Promise<void> {
   console.log("✓ голос released принят, вес взят из книги");
 
   // ---- 4. the verdict ----
-  console.log(`жду voting_period (${VOTING_PERIOD} с)`);
-  await sleep(Number(VOTING_PERIOD) + 20);
-  const signed = await lab.funding.request_signature({
-    chain: lab.chainId,
-    collection_id: id,
-    donor: donor.publicKey,
-    gross: CONTRIBUTION,
-    deadline,
-    nonce,
-  });
+  // The window closing is not the verdict: the canister's timer (30 s) moves
+  // the collection to decided, so the signature has to be waited for, not
+  // asked once.
+  console.log(`жду voting_period (${VOTING_PERIOD} с) и тик канистры`);
+  await sleep(Number(VOTING_PERIOD) + 10);
+  const request = () =>
+    lab.funding.request_signature({
+      chain: lab.chainId,
+      collection_id: id,
+      donor: donor.publicKey,
+      gross: CONTRIBUTION,
+      deadline,
+      nonce,
+    });
+  let signed = await request();
+  for (let attempt = 0; "Err" in signed && attempt < 12; attempt++) {
+    if (!signed.Err.includes("not decided")) break;
+    process.stdout.write(".");
+    await sleep(10);
+    signed = await request();
+  }
   if ("Err" in signed) throw new Error(`request_signature: ${signed.Err}`);
   const verdict = Object.keys(signed.Ok.outcome)[0];
   if (!("settle" in signed.Ok.outcome)) throw new Error(`вердикт ${verdict}, ожидался settle`);
