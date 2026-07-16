@@ -1,0 +1,33 @@
+# Crown-Lab — testnet profile (Solana devnet).
+#
+# Chain addresses are copied from the sources that own them; this repository
+# never invents one:
+#   splitter, usdc      — Crown-Core/config/testnet.toml
+#   factory_*           — Crown-Factory/deploy/testnet.toml
+#   fee_bps, fee_wallet — the games' config/testnet.toml (the price tag every
+#                         escrow of theirs is born with; part of the salt)
+#
+# Canister ids are empty here: they belong to a live replica. scripts/lab-up.sh
+# writes config/local.toml (gitignored) with them filled in, and the page also
+# lets you paste them by hand.
+
+id  = "solana-devnet"
+rpc = "https://api.devnet.solana.com"
+
+splitter = "DDSeyx684iU9agHbXExwS3NstLvQeLKZcJWcJFSh1VDA"
+usdc     = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+
+factory_two_outcome = "83f7ziVs5VeQ8xiDka8zczbfJT4WcxsXQ18cqWwmV5ur"
+factory_stream      = "57MpCQ3TfAE66qDAnfkP9AX7LRqwd4CNX8uN6DaVwm3V"
+
+# The games' price tag. Every escrow the canisters recognize is born with
+# exactly these two values — an escrow born with any other pair derives a
+# different address and is simply not this game's escrow.
+fee_bps    = "300"
+fee_wallet = "3it64t7KXNip1C1BRYNh8ygeKyujWnaQrPSj3hV9TWbE"
+
+ic_host           = "http://127.0.0.1:4943"
+crown_index       = ""
+conditional_tasks = ""
+conditional_funding = ""
+subscription      = ""

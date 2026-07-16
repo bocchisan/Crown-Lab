@@ -1,0 +1,51 @@
+[
+  {
+    "comment": "reference: solana find-program-derived-address <program> string:escrow hex:<salt>; first seed is hex('escrow')",
+    "program": "83f7ziVs5VeQ8xiDka8zczbfJT4WcxsXQ18cqWwmV5ur",
+    "seeds_hex": [
+      "657363726f77",
+      "0102030405060708010203040506070801020304050607080102030405060708"
+    ],
+    "pda": "5vcfrLTtCE696ehWLHFnvae1eby5goxGakT7PCpEtjfQ"
+  },
+  {
+    "program": "57MpCQ3TfAE66qDAnfkP9AX7LRqwd4CNX8uN6DaVwm3V",
+    "seeds_hex": [
+      "657363726f77",
+      "0102030405060708010203040506070801020304050607080102030405060708"
+    ],
+    "pda": "Di14Tw4pKy78qzjEWDRSx84Vo6ywg5mM41iYPXgLj94c"
+  },
+  {
+    "program": "83f7ziVs5VeQ8xiDka8zczbfJT4WcxsXQ18cqWwmV5ur",
+    "seeds_hex": [
+      "657363726f77",
+      "abababababababababababababababababababababababababababababababab"
+    ],
+    "pda": "9aqG936ui3T6EN4MkxJKAuvTqR1E7ds3NtJzyTPRety2"
+  },
+  {
+    "program": "57MpCQ3TfAE66qDAnfkP9AX7LRqwd4CNX8uN6DaVwm3V",
+    "seeds_hex": [
+      "657363726f77",
+      "abababababababababababababababababababababababababababababababab"
+    ],
+    "pda": "45jEn6YPac9TnkwdPptkFjZaNgKeRaAUvAXhmjeN33pB"
+  },
+  {
+    "program": "83f7ziVs5VeQ8xiDka8zczbfJT4WcxsXQ18cqWwmV5ur",
+    "seeds_hex": [
+      "657363726f77",
+      "0000000000000000000000000000000000000000000000000000000000000000"
+    ],
+    "pda": "2J2ajq6HsYFNSHnWTP4y7ym424sWxgEZpGFJev25ggcs"
+  },
+  {
+    "program": "57MpCQ3TfAE66qDAnfkP9AX7LRqwd4CNX8uN6DaVwm3V",
+    "seeds_hex": [
+      "657363726f77",
+      "0000000000000000000000000000000000000000000000000000000000000000"
+    ],
+    "pda": "3DLg4mKBBRhwypvzvHob4u3JKqcbFpqRnDpJmWP3X441"
+  }
+]

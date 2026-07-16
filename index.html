@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Crown Lab — devnet</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --line: color-mix(in srgb, currentColor 18%, transparent);
+        --soft: color-mix(in srgb, currentColor 6%, transparent);
+        --ok: #2e7d32;
+        --bad: #c62828;
+        --wait: #ef6c00;
+      }
+      body {
+        font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        margin: 0;
+        padding: 16px;
+        max-width: 1100px;
+      }
+      h1 { font-size: 18px; margin: 0 0 4px; }
+      h2 { font-size: 15px; margin: 0 0 8px; }
+      section {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 12px;
+        margin-bottom: 12px;
+      }
+      button {
+        font: inherit;
+        padding: 4px 10px;
+        margin: 2px 4px 2px 0;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: var(--soft);
+        color: inherit;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) { background: color-mix(in srgb, currentColor 14%, transparent); }
+      button:disabled { opacity: 0.45; cursor: default; }
+      input, select {
+        font: inherit;
+        padding: 3px 6px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: transparent;
+        color: inherit;
+      }
+      input[type="number"] { width: 11ch; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { text-align: left; padding: 4px 8px 4px 0; vertical-align: top; }
+      th { font-weight: 600; opacity: 0.7; }
+      tbody tr { border-top: 1px solid var(--line); }
+      .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+      .muted { opacity: 0.6; }
+      .ok { color: var(--ok); }
+      .bad { color: var(--bad); }
+      .wait { color: var(--wait); }
+      .mono { font-family: inherit; }
+      #log {
+        white-space: pre-wrap;
+        word-break: break-all;
+        max-height: 320px;
+        overflow-y: auto;
+        background: var(--soft);
+        border-radius: 4px;
+        padding: 8px;
+      }
+      a { color: inherit; }
+      .pill {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 0 6px;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">загрузка…</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

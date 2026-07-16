@@ -1,0 +1,88 @@
+[
+  {
+    "donor_hex": "0714212e3b4855626f7c8996a3b0bdcad7e4f1fe0b1825323f4c596673808d9a",
+    "recipients_hex": [
+      "0e1b2835424f5c697683909daab7c4d1deebf805121f2c394653606d7a8794a1"
+    ],
+    "shares": [
+      10000
+    ],
+    "chunk": 34,
+    "n_chunks": 1,
+    "t0": 1767225600,
+    "period": 1,
+    "resolver_hex": "3f4c596673808d9aa7b4c1cedbe8f5020f1c293643505d6a7784919eabb8c5d2",
+    "fee_bps": 0,
+    "fee_wallet_hex": "8c99a6b3c0cddae7f4010e1b2835424f5c697683909daab7c4d1deebf805121f",
+    "nonce": 0,
+    "salt_hex": "3dc09d04931f90b19d6e995097a1f7034aa07149609340a555e76d09a53e55bd"
+  },
+  {
+    "donor_hex": "0714212e3b4855626f7c8996a3b0bdcad7e4f1fe0b1825323f4c596673808d9a",
+    "recipients_hex": [
+      "0e1b2835424f5c697683909daab7c4d1deebf805121f2c394653606d7a8794a1",
+      "15222f3c495663707d8a97a4b1becbd8e5f2ff0c192633404d5a6774818e9ba8"
+    ],
+    "shares": [
+      7000,
+      3000
+    ],
+    "chunk": 100000,
+    "n_chunks": 12,
+    "t0": 1767225600,
+    "period": 604800,
+    "resolver_hex": "3f4c596673808d9aa7b4c1cedbe8f5020f1c293643505d6a7784919eabb8c5d2",
+    "fee_bps": 500,
+    "fee_wallet_hex": "4653606d7a8794a1aebbc8d5e2effc091623303d4a5764717e8b98a5b2bfccd9",
+    "nonce": 7,
+    "salt_hex": "de0f2cfe051b2ca773297cb105e5e7fb5acdc6c9b25e899fd939826acb9f5434"
+  },
+  {
+    "donor_hex": "1c293643505d6a7784919eabb8c5d2dfecf90613202d3a4754616e7b8895a2af",
+    "recipients_hex": [
+      "23303d4a5764717e8b98a5b2bfccd9e6f3000d1a2734414e5b6875828f9ca9b6",
+      "2a3744515e6b7885929facb9c6d3e0edfa0714212e3b4855626f7c8996a3b0bd",
+      "313e4b5865727f8c99a6b3c0cddae7f4010e1b2835424f5c697683909daab7c4"
+    ],
+    "shares": [
+      3333,
+      3333,
+      3333
+    ],
+    "chunk": 100001,
+    "n_chunks": 65535,
+    "t0": -62135596800,
+    "period": 9223372036854,
+    "resolver_hex": "3845525f6c798693a0adbac7d4e1eefb0815222f3c495663707d8a97a4b1becb",
+    "fee_bps": 9999,
+    "fee_wallet_hex": "4d5a6774818e9ba8b5c2cfdce9f603101d2a3744515e6b7885929facb9c6d3e0",
+    "nonce": 18446744073709551615,
+    "salt_hex": "d395f9439c3da27c036c40391f896a3b5bb8a943c8d7b632ea28393cdd047993"
+  },
+  {
+    "donor_hex": "4653606d7a8794a1aebbc8d5e2effc091623303d4a5764717e8b98a5b2bfccd9",
+    "recipients_hex": [
+      "4d5a6774818e9ba8b5c2cfdce9f603101d2a3744515e6b7885929facb9c6d3e0",
+      "54616e7b8895a2afbcc9d6e3f0fd0a1724313e4b5865727f8c99a6b3c0cddae7",
+      "5b6875828f9ca9b6c3d0ddeaf704111e2b3845525f6c798693a0adbac7d4e1ee",
+      "626f7c8996a3b0bdcad7e4f1fe0b1825323f4c596673808d9aa7b4c1cedbe8f5",
+      "697683909daab7c4d1deebf805121f2c394653606d7a8794a1aebbc8d5e2effc"
+    ],
+    "shares": [
+      2000,
+      2000,
+      2000,
+      2000,
+      0
+    ],
+    "chunk": 18446744073709551615,
+    "n_chunks": 1,
+    "t0": 9223372036854775807,
+    "period": 1,
+    "resolver_hex": "707d8a97a4b1becbd8e5f2ff0c192633404d5a6774818e9ba8b5c2cfdce9f603",
+    "fee_bps": 1,
+    "fee_wallet_hex": "93a0adbac7d4e1eefb0815222f3c495663707d8a97a4b1becbd8e5f2ff0c1926",
+    "nonce": 1,
+    "salt_hex": "67eb973b5e0f254e65b6222a28ab9a3ddef9fcf4984cc4559201e855ed97a629"
+  }
+]

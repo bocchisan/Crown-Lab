@@ -1,0 +1,291 @@
+// «Сбор» — a crowdfunding collection over the same two-outcome shape. Two
+// things differ from «Задания» and both are worth watching here:
+//
+//   1. Every collection has its own resolver — the threshold key derived at
+//      path [collection_id] — so a signature of one collection cannot open
+//      another's escrow.
+//   2. Signatures are issued on demand (request_signature) rather than stored:
+//      one verdict moves every contribution, each claimed separately.
+
+import { PublicKey } from "@solana/web3.js";
+
+import { asBytes, decodeCollectionRecord, optional } from "../canisters.ts";
+import { fromHex, hex } from "../bytes.ts";
+import { decodeTwoOutcome } from "../escrow.ts";
+import { createAtaIx, ed25519VerifyIx, twoOutcomeClaimIx, twoOutcomeCreateIx, twoOutcomeRefundIx } from "../ix.ts";
+import { type Lab, participantByAddress } from "../lab.ts";
+import { explorerAddress, explorerTx, formatUsdc, send } from "../net.ts";
+import {
+  FUNDING_ACTION,
+  FUNDING_CHOICE,
+  collectionId,
+  collectionMessage,
+  createPayload,
+  twoOutcomeVerdictMessage,
+} from "../messages.ts";
+import { type CollectionEntry, load, update } from "../store.ts";
+import { button, el, field, labeled, link, log, logLink, row, section, short, span } from "../ui.ts";
+import { participantSelect, refreshBalances, selectedSigner } from "./participants.ts";
+
+const DEADLINE_MARGIN = 259_200n;
+
+export function fundingPanel(lab: Lab): HTMLElement {
+  const km = participantSelect(lab);
+  const goal = field("goal", "1", 6);
+  const duration = field("duration", "600", 6);
+
+  const createRow = row(
+    labeled("КМ", km),
+    labeled("цель, USDC", goal),
+    labeled("duration, с", duration),
+    button("1. создать коллекцию", async () => {
+      if (!lab.funding) throw new Error("canister id игры «сбор» не задан");
+      const manager = selectedSigner(lab, km);
+      const kmNonce = BigInt(Math.floor(Date.now() / 1000));
+      const canisterId = lab.principalBytes("conditionalFunding");
+      const id = collectionId(canisterId, manager.publicKey, kmNonce);
+      const goalUnits = BigInt(Math.round(Number(goal.value) * 1e6));
+      const message = collectionMessage(
+        lab.chainId,
+        canisterId,
+        id,
+        FUNDING_ACTION.create,
+        createPayload(goalUnits, BigInt(duration.value)),
+      );
+      const signature = await manager.signMessage(message);
+      const out = await lab.funding.create_collection({
+        chain: lab.chainId,
+        km: manager.publicKey,
+        km_nonce: kmNonce,
+        goal: goalUnits,
+        duration: BigInt(duration.value),
+        signature,
+      });
+      if ("Err" in out) throw new Error(`create_collection: ${out.Err}`);
+      const stored = asBytes(out.Ok);
+      // The canister derives the same id from the same fields; if these two
+      // ever differ, the client's derivation is wrong.
+      if (hex(stored) !== hex(id)) throw new Error("collection_id канистры не совпал с локальным");
+      const resolver = optional(await lab.funding.get_resolver(lab.chainId, id));
+      if (!resolver) throw new Error("резолвер коллекции ещё не готов");
+      const entry: CollectionEntry = {
+        collectionId: hex(id),
+        km: manager.address,
+        kmNonce: kmNonce.toString(),
+        goal: goalUnits.toString(),
+        duration: duration.value,
+        resolver: hex(asBytes(resolver)),
+        contributions: [],
+      };
+      update((store) => store.collections.unshift(entry));
+      log(`коллекция ${short(entry.collectionId)} создана; её собственный резолвер ${short(entry.resolver)}`, "ok");
+      lab.refresh();
+    }),
+  );
+
+  const list = el("div");
+  for (const entry of load().collections) list.append(collectionRow(lab, entry));
+
+  return section(
+    "Игра «Сбор» — two-outcome, общий вердикт коллекции",
+    el("div", { className: "muted" }, [
+      "КМ открывает сбор, вкладчики вешают по эскроу на общий резолвер коллекции. " +
+        "КМ жмёт «released», держатели репутации голосуют, и один вердикт решает судьбу всех вкладов: " +
+        "settle → КМ (за вычетом комиссии), refund → каждому его вклад целиком. " +
+        "Кворум testnet — 150000 веса, порог — строгое большинство.",
+    ]),
+    createRow,
+    list,
+  );
+}
+
+function collectionRow(lab: Lab, entry: CollectionEntry): HTMLElement {
+  const id = fromHex(entry.collectionId);
+  const contributor = participantSelect(lab);
+  const gross = field("USDC", "0.03", 7);
+  const voter = participantSelect(lab);
+  const state = el("div", { className: "muted" });
+
+  const showState = async (): Promise<void> => {
+    if (!lab.funding) throw new Error("canister id игры не задан");
+    const certified = optional(await lab.funding.get_collection(lab.chainId, id));
+    if (!certified) {
+      state.textContent = "канистра коллекцию не знает";
+      return;
+    }
+    const record = decodeCollectionRecord(asBytes(certified.data));
+    const name = Object.keys(record.state)[0] ?? "?";
+    const decided = "decided" in record.state ? Object.keys(record.state.decided.outcome)[0] : null;
+    const votes = record.votes
+      .map((vote) => `${short(new PublicKey(asBytes(vote.voter)).toBase58())}:${Object.keys(vote.choice)[0]}(${vote.weight})`)
+      .join(", ");
+    const turnout = record.votes.reduce((sum, vote) => sum + vote.weight, 0n);
+    state.textContent =
+      `состояние: ${name}${decided ? ` → ${decided}` : ""} · явка ${turnout}/${record.quorum_weight} (кворум) · голоса: ${votes || "нет"}`;
+    log(state.textContent, "muted");
+  };
+
+  const claimOne = async (contribution: CollectionEntry["contributions"][number], outcome: number): Promise<void> => {
+    if (!lab.funding) throw new Error("canister id игры не задан");
+    // The signature is issued on demand: km and resolver come from the
+    // canister's record, never from this request.
+    const out = await lab.funding.request_signature({
+      chain: lab.chainId,
+      collection_id: id,
+      donor: new PublicKey(contribution.donor).toBytes(),
+      gross: BigInt(contribution.gross),
+      deadline: BigInt(contribution.deadline),
+      nonce: BigInt(contribution.nonce),
+    });
+    if ("Err" in out) throw new Error(`request_signature: ${out.Err}`);
+    const verdictName = Object.keys(out.Ok.outcome)[0];
+    const escrowFromCanister = new PublicKey(asBytes(out.Ok.escrow)).toBase58();
+    if (escrowFromCanister !== contribution.escrow) {
+      throw new Error(`канистра вывела другой эскроу: ${escrowFromCanister}`);
+    }
+    log(`вердикт коллекции: ${verdictName}; подпись выдана для ${short(contribution.escrow)}`, "muted");
+
+    const escrow = new PublicKey(contribution.escrow);
+    const account = await lab.connection.getAccountInfo(escrow);
+    if (!account) throw new Error("эскроу не найден на чейне");
+    const decoded = decodeTwoOutcome(new Uint8Array(account.data));
+    const payer = selectedSigner(lab, voter);
+    const message = twoOutcomeVerdictMessage(lab.domains.twoOutcome, lab.addresses.factoryTwoOutcome, escrow, outcome);
+    const tx = await send(lab.connection, payer, [
+      createAtaIx(new PublicKey(payer.publicKey), new PublicKey(decoded.streamer), lab.addresses.usdc),
+      createAtaIx(new PublicKey(payer.publicKey), new PublicKey(decoded.feeWallet), lab.addresses.usdc),
+      ed25519VerifyIx(asBytes(decoded.resolver), asBytes(out.Ok.signature), message),
+      twoOutcomeClaimIx(escrow, decoded, outcome, lab.addresses),
+    ]);
+    const fee = (decoded.gross * BigInt(decoded.feeBps)) / 10_000n;
+    logLink(
+      outcome === 0
+        ? `claim(0): КМ получил ${formatUsdc(decoded.gross - fee)} USDC; книга начислит ВКЛАДЧИКУ`
+        : `claim(1): вклад ${formatUsdc(decoded.gross)} USDC вернулся вкладчику`,
+      "tx",
+      explorerTx(tx),
+      "ok",
+    );
+    await refreshBalances(lab);
+  };
+
+  const contributions = el("div");
+  for (const contribution of entry.contributions) {
+    contributions.append(
+      el("div", { className: "row" }, [
+        span("└ вклад", "muted"),
+        link(short(contribution.escrow), explorerAddress(contribution.escrow)),
+        span(`${formatUsdc(BigInt(contribution.gross))} USDC`, "pill"),
+        span(short(contribution.donor), "muted"),
+        button("claim(0) settle", () => claimOne(contribution, 0)),
+        button("claim(1) refund", () => claimOne(contribution, 1)),
+        button("refund()", async () => {
+          const escrow = new PublicKey(contribution.escrow);
+          const account = await lab.connection.getAccountInfo(escrow);
+          if (!account) throw new Error("эскроу не найден");
+          const decoded = decodeTwoOutcome(new Uint8Array(account.data));
+          const payer = selectedSigner(lab, voter);
+          const tx = await send(lab.connection, payer, [twoOutcomeRefundIx(escrow, decoded, lab.addresses)]);
+          logLink("refund(): вклад вернулся мимо игры", "tx", explorerTx(tx), "ok");
+          await refreshBalances(lab);
+        }),
+      ]),
+    );
+  }
+
+  return el("div", {}, [
+    el("div", { className: "row" }, [
+      span(`коллекция ${short(entry.collectionId)}`, "pill"),
+      span(`КМ ${short(entry.km)} · цель ${formatUsdc(BigInt(entry.goal))} USDC`, "muted"),
+      labeled("вкладчик", contributor),
+      labeled("USDC", gross),
+      button("2. внести вклад", async () => {
+        const donor = selectedSigner(lab, contributor);
+        const manager = participantByAddress(lab, entry.km);
+        const now = BigInt(Math.floor(Date.now() / 1000));
+        const deadline = now + BigInt(entry.duration) + 120n + DEADLINE_MARGIN + 600n;
+        const nonce = now;
+        const grossUnits = BigInt(Math.round(Number(gross.value) * 1e6));
+        const birth = {
+          donor: donor.publicKey,
+          // In this game the escrow's streamer is the KM.
+          streamer: manager.publicKey,
+          gross: grossUnits,
+          deadline,
+          resolver: fromHex(entry.resolver),
+          feeBps: lab.feeBps,
+          feeWallet: lab.feeWallet.toBytes(),
+          nonce,
+        };
+        const { instruction, escrow } = twoOutcomeCreateIx(birth, lab.addresses);
+        const signature = await send(lab.connection, donor, [instruction]);
+        update((store) => {
+          const target = store.collections.find((collection) => collection.collectionId === entry.collectionId);
+          target?.contributions.push({
+            escrow: escrow.toBase58(),
+            donor: donor.address,
+            gross: grossUnits.toString(),
+            deadline: deadline.toString(),
+            nonce: nonce.toString(),
+          });
+        });
+        logLink(`вклад ${gross.value} USDC от ${donor.label}`, "tx", explorerTx(signature), "ok");
+        await refreshBalances(lab);
+        lab.refresh();
+      }),
+      button("3. released", async () => {
+        if (!lab.funding) throw new Error("canister id игры не задан");
+        const manager = participantByAddress(lab, entry.km);
+        const message = collectionMessage(
+          lab.chainId,
+          lab.principalBytes("conditionalFunding"),
+          id,
+          FUNDING_ACTION.released,
+          new Uint8Array(),
+        );
+        const signature = await manager.signMessage(message);
+        const out = await lab.funding.released({ chain: lab.chainId, collection_id: id, signature });
+        if ("Err" in out) throw new Error(`released: ${out.Err}`);
+        log("КМ объявил результат: коллекция ушла в голосование", "ok");
+        await showState();
+      }),
+      labeled("голосует", voter),
+      button("4. голос released", () => vote(lab, entry, voter, FUNDING_CHOICE.released)),
+      button("голос not_released", () => vote(lab, entry, voter, FUNDING_CHOICE.notReleased)),
+      button("состояние", showState),
+      button("×", () => {
+        update((store) => {
+          store.collections = store.collections.filter(
+            (collection) => collection.collectionId !== entry.collectionId,
+          );
+        });
+        lab.refresh();
+      }),
+    ]),
+    contributions,
+    state,
+  ]);
+}
+
+async function vote(lab: Lab, entry: CollectionEntry, select: HTMLSelectElement, choice: number): Promise<void> {
+  if (!lab.funding) throw new Error("canister id игры не задан");
+  const voter = selectedSigner(lab, select);
+  const id = fromHex(entry.collectionId);
+  const message = collectionMessage(
+    lab.chainId,
+    lab.principalBytes("conditionalFunding"),
+    id,
+    FUNDING_ACTION.vote,
+    new Uint8Array([choice]),
+  );
+  const signature = await voter.signMessage(message);
+  const out = await lab.funding.vote({
+    chain: lab.chainId,
+    collection_id: id,
+    voter: voter.publicKey,
+    choice: choice === FUNDING_CHOICE.released ? { released: null } : { not_released: null },
+    signature,
+  });
+  if ("Err" in out) throw new Error(`vote: ${out.Err}`);
+  log(`голос ${choice === FUNDING_CHOICE.released ? "released" : "not_released"} принят (${voter.label})`, "ok");
+}
