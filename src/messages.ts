@@ -101,41 +101,59 @@ export function channelMessage(
 }
 
 // ---- Funding (crown:conditional-funding:v1) ------------------------------
+//
+// Text, mirroring the canister's auth.rs line for line, for the same reason as
+// Tasks: Phantom signs valid UTF-8 and nothing else.
 
 export const FUNDING_DOMAIN = "crown:conditional-funding:v1";
 /** Unversioned: a key derivation input, not a signature domain. */
 export const COLLECTION_TAG = "crown:conditional-funding";
 
-export const FUNDING_ACTION = { create: 0, released: 1, vote: 2 } as const;
-export const FUNDING_CHOICE = { released: 0, notReleased: 1 } as const;
+/** The words the message uses, frozen with the protocol. */
+export const FUNDING_CHOICE = { released: "released", notReleased: "not_released" } as const;
+export type FundingChoiceWord = (typeof FUNDING_CHOICE)[keyof typeof FUNDING_CHOICE];
 
-/** DOMAIN ‖ lp(chain) ‖ lp(canister_id) ‖ lp(collection_id) ‖ action ‖ lp(payload) */
+export type FundingAction =
+  | { kind: "create"; goal: bigint; duration: bigint }
+  | { kind: "released" }
+  | { kind: "vote"; choice: FundingChoiceWord };
+
+/**
+ * crown:conditional-funding:v1
+ * action: vote
+ * chain: solana-devnet
+ * canister: vpyes-67777-77774-qaaeq-cai
+ * collection: 8290545b…
+ * choice: released
+ *
+ * `create` adds `goal:` and `duration:`; `released` adds nothing.
+ */
 export function collectionMessage(
   chain: string,
-  canisterId: Uint8Array,
+  canisterId: string,
   collectionId: Uint8Array,
-  action: number,
-  payload: Uint8Array,
+  action: FundingAction,
 ): Uint8Array {
-  return concat(
-    utf8(FUNDING_DOMAIN),
-    lp(utf8(chain)),
-    lp(canisterId),
-    lp(collectionId),
-    u8(action),
-    lp(payload),
-  );
-}
-
-/** goal_le ‖ duration_le — the KM handles outside the collection_id. */
-export function createPayload(goal: bigint, duration: bigint): Uint8Array {
-  return concat(u64le(goal), u64le(duration));
+  let out = `${FUNDING_DOMAIN}\n`;
+  out += `action: ${action.kind}\n`;
+  out += `chain: ${chain}\n`;
+  out += `canister: ${canisterId}\n`;
+  // The collection id is an opaque hash, not an address: hex is its form.
+  out += `collection: ${hex(collectionId)}\n`;
+  if (action.kind === "create") {
+    out += `goal: ${action.goal}\n`;
+    out += `duration: ${action.duration}\n`;
+  } else if (action.kind === "vote") {
+    out += `choice: ${action.choice}\n`;
+  }
+  return utf8(out);
 }
 
 /**
  * collection_id = sha256(TAG ‖ len(canister_id) u8 ‖ canister_id ‖ km ‖
- * km_nonce_le). The principal is length-prefixed: principals vary in length,
- * so the encoding must stay injective.
+ * km_nonce_le) — still binary, and deliberately: it is the derivation path of
+ * the collection's resolver, not a message anyone signs. The principal is
+ * length-prefixed so principals of different lengths cannot collide.
  */
 export function collectionId(canisterId: Uint8Array, km: Uint8Array, kmNonce: bigint): Uint8Array {
   return sha256(concat(utf8(COLLECTION_TAG), u8(canisterId.length), canisterId, km, u64le(kmNonce)));
@@ -144,24 +162,29 @@ export function collectionId(canisterId: Uint8Array, km: Uint8Array, kmNonce: bi
 // ---- Subscription (crown:subscription:v1) --------------------------------
 
 export const SUBSCRIPTION_DOMAIN = "crown:subscription:v1";
-const ACTION_CANCEL = 0;
+const ACTION_CANCEL = "cancel";
 
 /**
- * DOMAIN ‖ lp(chain) ‖ lp(canister_id) ‖ lp(escrow) ‖ 0x00 — the donor's word
- * to cancel. The donor is itself a birth field, so a forged authorization
- * addresses an escrow that does not exist.
+ * crown:subscription:v1
+ * action: cancel
+ * chain: solana-devnet
+ * canister: vg3po-ix777-77774-qaafa-cai
+ * escrow: CS1mmfBkPLimY6WLGczafmQBiQNUKTUmQrCfDBKUJEyz
+ *
+ * The donor's word to cancel. The donor is itself a birth field, so a forged
+ * authorization addresses an escrow that does not exist.
  */
 export function cancelAuthorization(
   chain: string,
-  canisterId: Uint8Array,
+  canisterId: string,
   escrow: Uint8Array,
 ): Uint8Array {
-  return concat(
-    utf8(SUBSCRIPTION_DOMAIN),
-    lp(utf8(chain)),
-    lp(canisterId),
-    lp(escrow),
-    u8(ACTION_CANCEL),
+  return utf8(
+    `${SUBSCRIPTION_DOMAIN}\n` +
+      `action: ${ACTION_CANCEL}\n` +
+      `chain: ${chain}\n` +
+      `canister: ${canisterId}\n` +
+      `escrow: ${bs58.encode(escrow)}\n`,
   );
 }
 

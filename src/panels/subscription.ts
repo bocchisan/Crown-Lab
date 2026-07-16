@@ -192,7 +192,7 @@ function subscriptionRow(lab: Lab, entry: SubscriptionEntry): HTMLElement {
         const donorSigner = participantByAddress(lab, entry.donor);
         const authorization = cancelAuthorization(
           lab.chainId,
-          lab.principalBytes("subscription"),
+          lab.ids.subscription,
           new PublicKey(entry.escrow).toBytes(),
         );
         const signature = await donorSigner.signMessage(authorization);

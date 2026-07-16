@@ -16,11 +16,9 @@ import { createAtaIx, ed25519VerifyIx, twoOutcomeClaimIx, twoOutcomeCreateIx, tw
 import { type Lab, participantByAddress } from "../lab.ts";
 import { explorerAddress, explorerTx, formatUsdc, send } from "../net.ts";
 import {
-  FUNDING_ACTION,
   FUNDING_CHOICE,
   collectionId,
   collectionMessage,
-  createPayload,
   twoOutcomeVerdictMessage,
 } from "../messages.ts";
 import { type CollectionEntry, load, update } from "../store.ts";
@@ -45,13 +43,11 @@ export function fundingPanel(lab: Lab): HTMLElement {
       const canisterId = lab.principalBytes("conditionalFunding");
       const id = collectionId(canisterId, manager.publicKey, kmNonce);
       const goalUnits = BigInt(Math.round(Number(goal.value) * 1e6));
-      const message = collectionMessage(
-        lab.chainId,
-        canisterId,
-        id,
-        FUNDING_ACTION.create,
-        createPayload(goalUnits, BigInt(duration.value)),
-      );
+      const message = collectionMessage(lab.chainId, lab.ids.conditionalFunding, id, {
+        kind: "create",
+        goal: goalUnits,
+        duration: BigInt(duration.value),
+      });
       const signature = await manager.signMessage(message);
       const out = await lab.funding.create_collection({
         chain: lab.chainId,
@@ -241,13 +237,9 @@ function collectionRow(lab: Lab, entry: CollectionEntry): HTMLElement {
       button("3. released", async () => {
         if (!lab.funding) throw new Error("canister id игры не задан");
         const manager = participantByAddress(lab, entry.km);
-        const message = collectionMessage(
-          lab.chainId,
-          lab.principalBytes("conditionalFunding"),
-          id,
-          FUNDING_ACTION.released,
-          new Uint8Array(),
-        );
+        const message = collectionMessage(lab.chainId, lab.ids.conditionalFunding, id, {
+          kind: "released",
+        });
         const signature = await manager.signMessage(message);
         const out = await lab.funding.released({ chain: lab.chainId, collection_id: id, signature });
         if ("Err" in out) throw new Error(`released: ${out.Err}`);
@@ -272,17 +264,19 @@ function collectionRow(lab: Lab, entry: CollectionEntry): HTMLElement {
   ]);
 }
 
-async function vote(lab: Lab, entry: CollectionEntry, select: HTMLSelectElement, choice: number): Promise<void> {
+async function vote(
+  lab: Lab,
+  entry: CollectionEntry,
+  select: HTMLSelectElement,
+  choice: (typeof FUNDING_CHOICE)[keyof typeof FUNDING_CHOICE],
+): Promise<void> {
   if (!lab.funding) throw new Error("canister id игры не задан");
   const voter = selectedSigner(lab, select);
   const id = fromHex(entry.collectionId);
-  const message = collectionMessage(
-    lab.chainId,
-    lab.principalBytes("conditionalFunding"),
-    id,
-    FUNDING_ACTION.vote,
-    new Uint8Array([choice]),
-  );
+  const message = collectionMessage(lab.chainId, lab.ids.conditionalFunding, id, {
+    kind: "vote",
+    choice,
+  });
   const signature = await voter.signMessage(message);
   const out = await lab.funding.vote({
     chain: lab.chainId,
@@ -292,5 +286,5 @@ async function vote(lab: Lab, entry: CollectionEntry, select: HTMLSelectElement,
     signature,
   });
   if ("Err" in out) throw new Error(`vote: ${out.Err}`);
-  log(`голос ${choice === FUNDING_CHOICE.released ? "released" : "not_released"} принят (${voter.label})`, "ok");
+  log(`голос ${choice} принят (${voter.label})`, "ok");
 }

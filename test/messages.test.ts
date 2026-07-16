@@ -11,14 +11,12 @@ import { Message, PublicKey, VersionedMessage } from "@solana/web3.js";
 import { concat, hex, lp, u8, u16le, u32le, u64le, utf8 } from "../src/bytes.ts";
 import {
   TASK_CHOICE,
-  FUNDING_ACTION,
   FUNDING_CHOICE,
   cancelAuthorization,
   cancelMessage,
   channelMessage,
   collectionId,
   collectionMessage,
-  createPayload,
   releaseMessage,
   taskMessage,
   twoOutcomeVerdictMessage,
@@ -94,10 +92,9 @@ test("channel message matches the canister's vector", () => {
   );
 });
 
-test("task action and choice words are pinned", () => {
+test("action and choice words are pinned", () => {
   assert.deepEqual(TASK_CHOICE, { done: "done", notDone: "not_done" });
-  assert.deepEqual(FUNDING_ACTION, { create: 0, released: 1, vote: 2 });
-  assert.deepEqual(FUNDING_CHOICE, { released: 0, notReleased: 1 });
+  assert.deepEqual(FUNDING_CHOICE, { released: "released", notReleased: "not_released" });
 });
 
 /**
@@ -135,37 +132,60 @@ test("every Tasks message a wallet must sign is UTF-8 and not a transaction", ()
   }
 });
 
-// Mirror of collection_message_layout_is_pinned (Conditional-Funding auth.rs).
-test("collection message layout is pinned", () => {
-  const message = collectionMessage(
-    "solana-devnet",
-    new Uint8Array([0xaa]),
-    new Uint8Array([0xbb]),
-    FUNDING_ACTION.vote,
-    new Uint8Array([FUNDING_CHOICE.released]),
+// The Funding canister's own vectors (Conditional-Funding canister/src/auth.rs:
+// released_message_is_pinned, create_message_is_pinned, vote_message_is_pinned).
+const FUNDING_CANISTER = "vpyes-67777-77774-qaaeq-cai";
+const COLLECTION = new Uint8Array(32).fill(0xcc);
+const COLLECTION_HEX = "cc".repeat(32);
+
+test("released message matches the canister's vector", () => {
+  assert.equal(
+    text(collectionMessage("solana-devnet", FUNDING_CANISTER, COLLECTION, { kind: "released" })),
+    "crown:conditional-funding:v1\n" +
+      "action: released\n" +
+      "chain: solana-devnet\n" +
+      `canister: ${FUNDING_CANISTER}\n` +
+      `collection: ${COLLECTION_HEX}\n`,
   );
-  const expected = concat(
-    utf8("crown:conditional-funding:v1"),
-    u32le(13),
-    utf8("solana-devnet"),
-    u32le(1),
-    new Uint8Array([0xaa]),
-    u32le(1),
-    new Uint8Array([0xbb]),
-    u8(2),
-    u32le(1),
-    new Uint8Array([0x00]),
-  );
-  assert.equal(hex(message), hex(expected));
 });
 
-test("create payload layout is pinned", () => {
-  assert.equal(hex(createPayload(1_000_000n, 1800n)), hex(concat(u64le(1_000_000n), u64le(1800n))));
+test("create message matches the canister's vector", () => {
+  assert.equal(
+    text(
+      collectionMessage("solana-devnet", FUNDING_CANISTER, COLLECTION, {
+        kind: "create",
+        goal: 20_000_000_000n,
+        duration: 86_400n,
+      }),
+    ),
+    "crown:conditional-funding:v1\n" +
+      "action: create\n" +
+      "chain: solana-devnet\n" +
+      `canister: ${FUNDING_CANISTER}\n` +
+      `collection: ${COLLECTION_HEX}\n` +
+      "goal: 20000000000\n" +
+      "duration: 86400\n",
+  );
+});
+
+test("funding vote message matches the canister's vector", () => {
+  for (const choice of [FUNDING_CHOICE.released, FUNDING_CHOICE.notReleased]) {
+    assert.equal(
+      text(collectionMessage("solana-devnet", FUNDING_CANISTER, COLLECTION, { kind: "vote", choice })),
+      "crown:conditional-funding:v1\n" +
+        "action: vote\n" +
+        "chain: solana-devnet\n" +
+        `canister: ${FUNDING_CANISTER}\n` +
+        `collection: ${COLLECTION_HEX}\n` +
+        `choice: ${choice}\n`,
+    );
+  }
 });
 
 /**
  * Cross-tool vector from the Funding canister's tests, computed independently
- * with python hashlib:
+ * with python hashlib. The id stays binary on purpose: it is the derivation
+ * path of the collection's resolver, not a message anyone signs.
  *   sha256(b"crown:conditional-funding" + bytes([10]) + bytes([0x01]*10)
  *          + bytes([0x22]*32) + struct.pack("<Q", 7))
  */
@@ -183,21 +203,40 @@ test("collection id is injective in the principal length", () => {
   assert.notEqual(hex(short), hex(long));
 });
 
-// Mirror of the Subscription canister's cancel_authorization unit test.
-test("cancel authorization layout is pinned", () => {
-  const message = cancelAuthorization(
-    "solana-devnet",
-    new Uint8Array([0xaa, 0xbb]),
-    new Uint8Array(3).fill(0xcc),
+// Mirror of the Subscription canister's cancel_authorization_is_pinned test.
+test("cancel authorization matches the canister's vector", () => {
+  assert.equal(
+    text(cancelAuthorization("solana-devnet", "vg3po-ix777-77774-qaafa-cai", new Uint8Array(32).fill(0xcc))),
+    "crown:subscription:v1\n" +
+      "action: cancel\n" +
+      "chain: solana-devnet\n" +
+      "canister: vg3po-ix777-77774-qaafa-cai\n" +
+      `escrow: ${TASK_B58}\n`,
   );
-  const expected = concat(
-    utf8("crown:subscription:v1"),
-    lp(utf8("solana-devnet")),
-    lp(new Uint8Array([0xaa, 0xbb])),
-    lp(new Uint8Array(3).fill(0xcc)),
-    u8(0),
-  );
-  assert.equal(hex(message), hex(expected));
+});
+
+// The same requirement as for Tasks, for every remaining wallet-signed message:
+// Phantom signs valid UTF-8 and nothing else.
+test("Funding and Subscription messages a wallet must sign are UTF-8", () => {
+  const messages = [
+    collectionMessage("solana-devnet", FUNDING_CANISTER, COLLECTION, { kind: "released" }),
+    collectionMessage("solana-devnet", FUNDING_CANISTER, new Uint8Array(32).fill(0xff), {
+      kind: "create",
+      goal: 18_446_744_073_709_551_615n,
+      duration: 18_446_744_073_709_551_615n,
+    }),
+    collectionMessage("solana-devnet", FUNDING_CANISTER, COLLECTION, {
+      kind: "vote",
+      choice: FUNDING_CHOICE.notReleased,
+    }),
+    cancelAuthorization("solana-devnet", "vg3po-ix777-77774-qaafa-cai", new Uint8Array(32).fill(0xff)),
+  ];
+  for (const message of messages) {
+    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(message);
+    assert.equal(hex(utf8(decoded)), hex(message));
+    assert.throws(() => Message.from(Buffer.from(message)));
+    assert.throws(() => VersionedMessage.deserialize(message));
+  }
 });
 
 // ---- verdict messages (verified by the on-chain programs) ----------------
