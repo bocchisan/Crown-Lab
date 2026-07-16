@@ -8,7 +8,7 @@ import { test } from "node:test";
 
 import { Message, PublicKey, VersionedMessage } from "@solana/web3.js";
 
-import { concat, hex, lp, u8, u16le, u32le, u64le, utf8 } from "../src/bytes.ts";
+import { concat, hex, u8, u16le, utf8 } from "../src/bytes.ts";
 import {
   TASK_CHOICE,
   FUNDING_CHOICE,

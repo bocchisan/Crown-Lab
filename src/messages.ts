@@ -11,7 +11,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import type { PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 
-import { concat, hex, lp, u8, u16le, u64le, utf8 } from "./bytes.ts";
+import { concat, hex, u8, u16le, u64le, utf8 } from "./bytes.ts";
 
 // ---- Tasks (crown:conditional-tasks:v1) ---------------------------------
 //
