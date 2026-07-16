@@ -37,6 +37,17 @@ export interface DiscoveredWallet {
   connect(): Promise<Signer>;
 }
 
+/**
+ * Extensions register themselves asynchronously, often after the page has
+ * already rendered — without this the panel says "расширение не найдено" to
+ * someone who has Phantom installed and open.
+ */
+export function onWalletsChanged(listener: () => void): void {
+  const wallets = getWallets();
+  wallets.on("register", listener);
+  wallets.on("unregister", listener);
+}
+
 /** Wallets exposing connect + signMessage + signTransaction for our cluster. */
 export function discoverWallets(solanaChain: string): DiscoveredWallet[] {
   return getWallets()

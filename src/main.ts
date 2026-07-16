@@ -1,10 +1,9 @@
 // The page: one column of panels, one log. Every panel re-renders from
 // scratch after an action — there is no state here worth diffing.
 
-import { Buffer } from "buffer";
-
-// web3.js expects Buffer to exist; the browser has no such global.
-globalThis.Buffer ??= Buffer;
+// First, and before every other import: the Solana packages read `Buffer` at
+// module top level, and imports evaluate before this file's body.
+import "./polyfill.ts";
 
 import { type Lab, buildLab } from "./lab.ts";
 import { corePanel } from "./panels/core.ts";
@@ -13,6 +12,7 @@ import { participantsPanel, refreshBalances } from "./panels/participants.ts";
 import { subscriptionPanel } from "./panels/subscription.ts";
 import { tasksPanel } from "./panels/tasks.ts";
 import { el, log, section } from "./ui.ts";
+import { onWalletsChanged } from "./wallet.ts";
 
 async function main(): Promise<void> {
   const app = document.getElementById("app");
@@ -40,6 +40,8 @@ async function main(): Promise<void> {
   const refresh = (): void => render(lab);
   lab = await buildLab(refresh);
   render(lab);
+  // Wallet extensions announce themselves after load; repaint when they do.
+  onWalletsChanged(refresh);
 
   log(`лаборатория поднята: профиль ${lab.profile}, сеть ${lab.chainId}`, "ok");
   const missing = Object.entries(lab.ids)
