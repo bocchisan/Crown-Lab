@@ -11,6 +11,10 @@ import { button, el, field, labeled, link, log, logLink, row, section, short, sp
 
 /** Balances are read once per render and cached here, so tables paint fast. */
 const cache = new Map<string, Balances>();
+/** book[(chain, participant, bookStreamer)], filled by the same refresh. */
+const reputation = new Map<string, bigint>();
+/** Whose book we are looking at: reputation is always local to a streamer. */
+let bookStreamer: string | null = null;
 
 export function participantSelect(lab: Lab, selected?: string): HTMLSelectElement {
   const select = el("select");
@@ -28,16 +32,35 @@ export function selectedSigner(lab: Lab, select: HTMLSelectElement): Signer {
 }
 
 export async function refreshBalances(lab: Lab): Promise<void> {
-  for (const signer of allParticipants(lab)) {
+  const participants = allParticipants(lab);
+  bookStreamer ??= participants[0]?.address ?? null;
+  const streamer = participants.find((signer) => signer.address === bookStreamer);
+
+  for (const signer of participants) {
     cache.set(
       signer.address,
       await balancesOf(lab.connection, new PublicKey(signer.publicKey), lab.addresses.usdc),
     );
+    if (lab.index && streamer) {
+      reputation.set(
+        signer.address,
+        await lab.index.get_reputation(lab.chainId, signer.publicKey, streamer.publicKey),
+      );
+    }
   }
   lab.refresh();
 }
 
 export function participantsPanel(lab: Lab): HTMLElement {
+  // Reputation is per (payer, streamer): the column is meaningless without
+  // naming whose book we read, so the header carries the choice.
+  const streamerPick = participantSelect(lab, bookStreamer ?? undefined);
+  streamerPick.addEventListener("change", () => {
+    bookStreamer = streamerPick.value;
+    void refreshBalances(lab);
+  });
+  const streamerLabel = allParticipants(lab).find((signer) => signer.address === bookStreamer);
+
   const table = el("table", {}, [
     el("thead", {}, [
       el("tr", {}, [
@@ -46,6 +69,7 @@ export function participantsPanel(lab: Lab): HTMLElement {
         el("th", { textContent: "адрес" }),
         el("th", { textContent: "SOL" }),
         el("th", { textContent: "USDC" }),
+        el("th", { textContent: `репутация → ${streamerLabel ? streamerLabel.label : "?"}` }),
         el("th", { textContent: "" }),
       ]),
     ]),
@@ -66,6 +90,9 @@ export function participantsPanel(lab: Lab): HTMLElement {
         }),
       );
     }
+    const rep = reputation.get(signer.address);
+    // The vote's weight floor in «Задания» and «Сбор» is 100000 minor.
+    const enough = rep !== undefined && rep >= 100_000n;
     body.append(
       el("tr", {}, [
         el("td", { textContent: signer.label }),
@@ -73,6 +100,11 @@ export function participantsPanel(lab: Lab): HTMLElement {
         el("td", {}, [link(short(signer.address), explorerAddress(signer.address))]),
         el("td", { textContent: balances ? formatSol(balances.sol) : "—" }),
         el("td", { textContent: balances ? formatUsdc(balances.usdc) : "—" }),
+        el("td", {}, [
+          rep === undefined
+            ? span("—", "muted")
+            : span(`${formatUsdc(rep)} (${rep})`, enough ? "ok" : "muted"),
+        ]),
         actions,
       ]),
     );
@@ -83,21 +115,34 @@ export function participantsPanel(lab: Lab): HTMLElement {
   const wallets = discoverWallets(solanaChainOf(lab.chainId));
   const walletRow = row(span("кошелёк:"));
   if (wallets.length === 0) {
-    walletRow.append(span("расширение не найдено (Phantom/Solflare на devnet)", "muted"));
+    walletRow.append(
+      span(
+        "расширение не объявилось. Phantom/Solflare должны быть установлены, разблокированы и " +
+          "не спрятаны за другим кошельком; страница подхватит их сама, как только они зарегистрируются.",
+        "muted",
+      ),
+    );
   }
   for (const wallet of wallets) {
-    walletRow.append(
-      button(`подключить ${wallet.name}`, async () => {
-        const signer = await wallet.connect();
-        if (connectedWallets.some((existing) => existing.address === signer.address)) {
-          log(`${signer.label} уже подключён`, "muted");
-          return;
-        }
-        connectedWallets.push(signer);
-        log(`подключён ${signer.label}: ${signer.address}`, "ok");
-        await refreshBalances(lab);
-      }),
-    );
+    const connect = button(`подключить ${wallet.name}`, async () => {
+      const signer = await wallet.connect();
+      if (connectedWallets.some((existing) => existing.address === signer.address)) {
+        log(`${signer.label} уже подключён`, "muted");
+        return;
+      }
+      connectedWallets.push(signer);
+      log(`подключён ${signer.label}: ${signer.address}`, "ok");
+      await refreshBalances(lab);
+    });
+    if (wallet.blocked) {
+      // Listed anyway, with the reason: an extension that is installed but
+      // silently absent from the page is impossible to debug otherwise.
+      connect.disabled = true;
+      connect.title = wallet.blocked;
+      walletRow.append(connect, span(wallet.blocked, "bad"));
+    } else {
+      walletRow.append(connect);
+    }
   }
 
   const burnerLabel = field("label", "burner", 10);
@@ -152,7 +197,11 @@ export function participantsPanel(lab: Lab): HTMLElement {
   return section(
     "Участники",
     table,
-    row(button("обновить балансы", () => refreshBalances(lab))),
+    row(
+      button("обновить балансы и репутацию", () => refreshBalances(lab)),
+      labeled("книга стримера", streamerPick),
+      span("репутация всегда локальна стримеру: у одного кошелька их столько, скольким он донатил", "muted"),
+    ),
     walletRow,
     addRow,
     fundRow,
