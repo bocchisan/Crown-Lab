@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 FACTORY=${FACTORY_REPO:-../Crown-Factory}
-RAW=https://raw.githubusercontent.com/69walterwhite420-star/Crown-Factory/main/vectors
+RAW=https://raw.githubusercontent.com/bocchisan/Crown-Factory/main/vectors
 
 status=0
 for name in stream-salt.json solana.json; do
