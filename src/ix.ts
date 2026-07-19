@@ -90,12 +90,12 @@ export function ed25519VerifyIx(
 // ---- splitter -------------------------------------------------------------
 
 /**
- * donate(gross): the whole amount straight from the payer to the streamer,
+ * donate(gross): the whole amount straight from the payer to the recipient,
  * plus the Settled event the book reads. No fee, no custody.
  */
 export function donateIx(
   payer: PublicKey,
-  streamer: PublicKey,
+  recipient: PublicKey,
   gross: bigint,
   chain: ChainAddresses,
 ): TransactionInstruction {
@@ -103,10 +103,10 @@ export function donateIx(
     programId: chain.splitter,
     keys: [
       { pubkey: payer, isSigner: true, isWritable: false },
-      { pubkey: streamer, isSigner: false, isWritable: false },
+      { pubkey: recipient, isSigner: false, isWritable: false },
       { pubkey: chain.usdc, isSigner: false, isWritable: false },
       { pubkey: ata(payer, chain.usdc), isSigner: false, isWritable: true },
-      { pubkey: ata(streamer, chain.usdc), isSigner: false, isWritable: true },
+      { pubkey: ata(recipient, chain.usdc), isSigner: false, isWritable: true },
       { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
       { pubkey: splitterEventAuthority(chain.splitter), isSigner: false, isWritable: false },
       { pubkey: chain.splitter, isSigner: false, isWritable: false },
@@ -138,7 +138,7 @@ export function twoOutcomeCreateIx(
     programId: factory,
     keys: [
       { pubkey: donor, isSigner: true, isWritable: true },
-      { pubkey: new PublicKey(birth.streamer), isSigner: false, isWritable: false },
+      { pubkey: new PublicKey(birth.recipient), isSigner: false, isWritable: false },
       { pubkey: chain.usdc, isSigner: false, isWritable: false },
       { pubkey: escrow, isSigner: false, isWritable: true },
       { pubkey: ata(donor, chain.usdc), isSigner: false, isWritable: true },
@@ -153,19 +153,19 @@ export function twoOutcomeCreateIx(
 }
 
 /**
- * claim(outcome): settle (0) pays the streamer through the splitter net of
+ * claim(outcome): settle (0) pays the recipient through the splitter net of
  * the escrow's fee; cancel (1) returns everything to the donor. Permissionless
  * — the resolver's signature in the preceding ed25519 instruction is the whole
  * authority, so anyone may pay the gas.
  */
 export function twoOutcomeClaimIx(
   escrow: PublicKey,
-  state: Pick<TwoOutcomeEscrow, "donor" | "streamer" | "feeWallet">,
+  state: Pick<TwoOutcomeEscrow, "donor" | "recipient" | "feeWallet">,
   outcome: number,
   chain: ChainAddresses,
 ): TransactionInstruction {
   const donor = new PublicKey(state.donor);
-  const streamer = new PublicKey(state.streamer);
+  const recipient = new PublicKey(state.recipient);
   // The fee goes to the ATA of the wallet the escrow itself was born with;
   // the program pins the address, this list only supplies it.
   const feeWallet = new PublicKey(state.feeWallet);
@@ -177,8 +177,8 @@ export function twoOutcomeClaimIx(
       { pubkey: ata(escrow, chain.usdc), isSigner: false, isWritable: true },
       { pubkey: donor, isSigner: false, isWritable: true },
       { pubkey: ata(donor, chain.usdc), isSigner: false, isWritable: true },
-      { pubkey: streamer, isSigner: false, isWritable: false },
-      { pubkey: ata(streamer, chain.usdc), isSigner: false, isWritable: true },
+      { pubkey: recipient, isSigner: false, isWritable: false },
+      { pubkey: ata(recipient, chain.usdc), isSigner: false, isWritable: true },
       { pubkey: ata(feeWallet, chain.usdc), isSigner: false, isWritable: true },
       { pubkey: splitterEventAuthority(chain.splitter), isSigner: false, isWritable: false },
       { pubkey: chain.splitter, isSigner: false, isWritable: false },

@@ -66,10 +66,11 @@ async function main(): Promise<void> {
   const canisterId = cfg.conditional_tasks ?? "";
 
   const donor = keypairSigner(`${homedir()}/.cache/crown-e2e/donor.json`, "донор");
-  const streamer = keypairSigner(`${homedir()}/.cache/crown-e2e/streamer.json`, "стример");
+  // The keypair file keeps its historical name; only the role is named anew.
+  const recipient = keypairSigner(`${homedir()}/.cache/crown-e2e/streamer.json`, "получатель");
   const donorKey = new PublicKey(donor.publicKey);
-  const streamerKey = new PublicKey(streamer.publicKey);
-  console.log(`донор ${donor.address}\nстример ${streamer.address}`);
+  const recipientKey = new PublicKey(recipient.publicKey);
+  console.log(`донор ${donor.address}\nполучатель ${recipient.address}`);
 
   const resolver = optional(await tasks.get_resolver(chainId));
   if (!resolver) throw new Error("резолвер не прогрелся");
@@ -79,18 +80,18 @@ async function main(): Promise<void> {
   // ---- 1. a direct donate: the reputation the vote is weighed with ----
   // The book is not assumed empty: it may already carry history from earlier
   // runs, so every expectation below is relative to this baseline.
-  const baseline = await index.get_reputation(chainId, donor.publicKey, streamer.publicKey);
+  const baseline = await index.get_reputation(chainId, donor.publicKey, recipient.publicKey);
   console.log(`книга на старте: ${baseline} (базовая линия)`);
-  const before = await balancesOf(connection, streamerKey, addresses.usdc);
+  const before = await balancesOf(connection, recipientKey, addresses.usdc);
   const donateSig = await send(connection, donor, [
-    createAtaIx(donorKey, streamerKey, addresses.usdc),
-    donateIx(donorKey, streamerKey, DONATE, addresses),
+    createAtaIx(donorKey, recipientKey, addresses.usdc),
+    donateIx(donorKey, recipientKey, DONATE, addresses),
   ]);
   console.log(`донат ${DONATE}: ${donateSig}`);
-  const afterDonate = await balancesOf(connection, streamerKey, addresses.usdc);
+  const afterDonate = await balancesOf(connection, recipientKey, addresses.usdc);
   const moved = (afterDonate.usdc ?? 0n) - (before.usdc ?? 0n);
   if (moved !== DONATE) throw new Error(`сплиттер сдвинул ${moved}, а не ${DONATE} — 100% не дошло`);
-  console.log(`✓ стример получил весь gross: ${formatUsdc(moved)} USDC, комиссии нет`);
+  console.log(`✓ получатель получил весь gross: ${formatUsdc(moved)} USDC, комиссии нет`);
 
   // ---- 2. the escrow ----
   const now = BigInt(Math.floor(Date.now() / 1000));
@@ -98,7 +99,7 @@ async function main(): Promise<void> {
   const nonce = now;
   const birth = {
     donor: donor.publicKey,
-    streamer: streamer.publicKey,
+    recipient: recipient.publicKey,
     gross: GROSS,
     deadline,
     resolver: resolverBytes,
@@ -123,7 +124,7 @@ async function main(): Promise<void> {
   const registered = await tasks.register_task({
     chain: chainId,
     donor: donor.publicKey,
-    streamer: streamer.publicKey,
+    recipient: recipient.publicKey,
     gross: GROSS,
     deadline,
     resolver: resolverBytes,
@@ -136,19 +137,20 @@ async function main(): Promise<void> {
   if (hex(asBytes(registered.Ok)) !== hex(taskId)) throw new Error("task_id канистры ≠ адрес эскроу");
   console.log("✓ register: task_id канистры == адрес эскроу");
 
-  for (const method of ["accept", "done"] as const) {
+  for (const method of ["accept", "ready"] as const) {
     const message = taskMessage(chainId, canisterId, taskId, { kind: method });
-    const out = await tasks[method]({ chain: chainId, task_id: taskId, signature: await streamer.signMessage(message) });
+    const out = await tasks[method]({ chain: chainId, task_id: taskId, signature: await recipient.signMessage(message) });
     if ("Err" in out) throw new Error(`${method}: ${out.Err}`);
     console.log(`✓ ${method}`);
   }
 
   // ---- 4. the book must see the donate before the vote is weighed ----
-  process.stdout.write("жду ингеста доната в книгу");
+  await index.ingest_hint();
+  process.stdout.write("жду ингеста доната в книгу (будильник позвонил)");
   const afterIngest = baseline + DONATE;
   let reputation = 0n;
   for (let attempt = 0; attempt < 30; attempt++) {
-    reputation = await index.get_reputation(chainId, donor.publicKey, streamer.publicKey);
+    reputation = await index.get_reputation(chainId, donor.publicKey, recipient.publicKey);
     if (reputation >= afterIngest) break;
     process.stdout.write(".");
     await sleep(10);
@@ -193,27 +195,28 @@ async function main(): Promise<void> {
   const account = await connection.getAccountInfo(escrow);
   if (!account) throw new Error("эскроу исчез");
   const decoded = decodeTwoOutcome(new Uint8Array(account.data));
-  const streamerBefore = await balancesOf(connection, streamerKey, addresses.usdc);
+  const recipientBefore = await balancesOf(connection, recipientKey, addresses.usdc);
   const message = twoOutcomeVerdictMessage(`crown:two-outcome:${chainId}`, addresses.factoryTwoOutcome, escrow, 0);
   const claimSig = await send(connection, donor, [
-    createAtaIx(donorKey, streamerKey, addresses.usdc),
+    createAtaIx(donorKey, recipientKey, addresses.usdc),
     createAtaIx(donorKey, feeWallet, addresses.usdc),
     ed25519VerifyIx(decoded.resolver, signature, message),
     twoOutcomeClaimIx(escrow, decoded, 0, addresses),
   ]);
   console.log(`claim(0): ${claimSig}`);
-  const streamerAfter = await balancesOf(connection, streamerKey, addresses.usdc);
+  const recipientAfter = await balancesOf(connection, recipientKey, addresses.usdc);
   const fee = (GROSS * BigInt(feeBps)) / 10_000n;
-  const payout = (streamerAfter.usdc ?? 0n) - (streamerBefore.usdc ?? 0n);
-  if (payout !== GROSS - fee) throw new Error(`стример получил ${payout}, ожидалось ${GROSS - fee}`);
-  console.log(`✓ стример получил ${formatUsdc(payout)} USDC (gross ${GROSS} − комиссия игры ${fee})`);
+  const payout = (recipientAfter.usdc ?? 0n) - (recipientBefore.usdc ?? 0n);
+  if (payout !== GROSS - fee) throw new Error(`получатель получил ${payout}, ожидалось ${GROSS - fee}`);
+  console.log(`✓ получатель получил ${formatUsdc(payout)} USDC (gross ${GROSS} − комиссия игры ${fee})`);
 
   // ---- 8. the book credits the DONOR for the game settlement ----
   const expected = afterIngest + GROSS - fee;
-  process.stdout.write("жду ингеста расчёта игры");
+  await index.ingest_hint();
+  process.stdout.write("жду ингеста расчёта игры (будильник позвонил)");
   let final = 0n;
   for (let attempt = 0; attempt < 30; attempt++) {
-    final = await index.get_reputation(chainId, donor.publicKey, streamer.publicKey);
+    final = await index.get_reputation(chainId, donor.publicKey, recipient.publicKey);
     if (final >= expected) break;
     process.stdout.write(".");
     await sleep(10);

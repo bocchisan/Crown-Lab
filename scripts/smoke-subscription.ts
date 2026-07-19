@@ -22,7 +22,7 @@ const PERIOD = 45n;
 async function main(): Promise<void> {
   const lab = await context();
   const donor = lab.donor;
-  const owner = lab.streamer;
+  const owner = lab.recipient;
   const donorKey = new PublicKey(donor.publicKey);
   const ownerKey = new PublicKey(owner.publicKey);
   console.log(`донор ${donor.address}\nвладелец ${owner.address}`);

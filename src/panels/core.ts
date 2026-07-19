@@ -23,41 +23,48 @@ export function corePanel(lab: Lab): HTMLElement {
   const donateRow = row(
     span("донат:"),
     labeled("от", from),
-    labeled("стримеру", to),
+    labeled("получателю", to),
     labeled("USDC", amount),
     button("донат через сплиттер", async () => {
       const donor = selectedSigner(lab, from);
-      const streamer = selectedSigner(lab, to);
+      const recipient = selectedSigner(lab, to);
       const gross = BigInt(Math.round(Number(amount.value) * 1e6));
       if (gross <= 0n) throw new Error("нулевой донат программа отвергнет");
-      const streamerKey = new PublicKey(streamer.publicKey);
+      const recipientKey = new PublicKey(recipient.publicKey);
       const signature = await send(lab.connection, donor, [
-        // The streamer may have no USDC account yet; the splitter demands it.
-        createAtaIx(new PublicKey(donor.publicKey), streamerKey, lab.addresses.usdc),
-        donateIx(new PublicKey(donor.publicKey), streamerKey, gross, lab.addresses),
+        // The recipient may have no USDC account yet; the splitter demands it.
+        createAtaIx(new PublicKey(donor.publicKey), recipientKey, lab.addresses.usdc),
+        donateIx(new PublicKey(donor.publicKey), recipientKey, gross, lab.addresses),
       ]);
       logLink(
-        `донат ${amount.value} USDC: ${donor.label} → ${streamer.label} (весь gross, комиссии нет)`,
+        `донат ${amount.value} USDC: ${donor.label} → ${recipient.label} (весь gross, комиссии нет)`,
         "tx",
         explorerTx(signature),
         "ok",
       );
-      log("книга увидит его после финализации и ингеста (таймер канистры — 60 с)", "muted");
+      log("книга увидит его после финализации; звонок будильника приблизит чтение", "muted");
       await refreshBalances(lab);
+    }),
+    // The core's only non-query method: an empty alarm clock. It cannot put
+    // anything into the book — only pull the next chain read closer.
+    button("будильник (ingest_hint)", async () => {
+      if (!lab.index) throw new Error("canister id crown-index не задан");
+      await lab.index.ingest_hint();
+      log("будильник позвонил: следующий ингест — на границе зазора (HINT_GAP 60 с)", "ok");
     }),
   );
 
   // ---- the book ----
-  const payer = participantSelect(lab);
-  const streamer = participantSelect(lab);
+  const donor = participantSelect(lab);
+  const recipient = participantSelect(lab);
   const bookRow = row(
     span("книга:"),
-    labeled("плательщик", payer),
-    labeled("стример", streamer),
+    labeled("донор", donor),
+    labeled("получатель", recipient),
     button("читать книгу", async () => {
       if (!lab.index) throw new Error("canister id crown-index не задан");
-      const p = selectedSigner(lab, payer);
-      const s = selectedSigner(lab, streamer);
+      const p = selectedSigner(lab, donor);
+      const s = selectedSigner(lab, recipient);
       const reputation = await lab.index.get_reputation(lab.chainId, p.publicKey, s.publicKey);
       const anomalies = await lab.index.get_anomaly_count();
       const cursor = optional(await lab.index.get_cursor(lab.chainId));
@@ -100,6 +107,7 @@ function canisterRow(lab: Lab): HTMLElement {
     ["crownIndex", "crown-index"],
     ["conditionalTasks", "задания"],
     ["conditionalFunding", "сбор"],
+    ["auction", "аукцион"],
     ["subscription", "подписка"],
   ];
   const container = el("div", { className: "row" }, [span("канистры:")]);

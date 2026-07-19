@@ -1,7 +1,7 @@
 // Headless replay of «Сбор» against the live replica and the live devnet,
 // driving the modules the page drives. Proves the whole loop with the text
-// message format: create → contribute → released → vote → verdict → claim,
-// and the book crediting the CONTRIBUTOR, not the KM.
+// message format: create → contribute → ready → vote → verdict → claim,
+// and the book crediting the CONTRIBUTOR, not the recipient.
 //
 // Usage: npx tsx scripts/smoke-funding.ts
 import { Principal } from "@dfinity/principal";
@@ -23,22 +23,22 @@ const DEADLINE_MARGIN = 259_200n;
 
 async function main(): Promise<void> {
   const lab = await context();
-  // The KM is the streamer key: the donor's reputation is local to it, and a
-  // vote is weighed by book[(chain, voter, km)] — the quorum is 150000.
-  const km = lab.streamer;
+  // The collection's recipient: the donor's reputation is local to it, and a
+  // vote is weighed by book[(chain, voter, recipient)] — the quorum is 150000.
+  const recipient = lab.recipient;
   const donor = lab.donor;
-  const kmKey = new PublicKey(km.publicKey);
+  const recipientKey = new PublicKey(recipient.publicKey);
   const donorKey = new PublicKey(donor.publicKey);
-  console.log(`КМ ${km.address}\nвкладчик ${donor.address}`);
+  console.log(`получатель ${recipient.address}\nвкладчик ${donor.address}`);
 
-  const weight = await lab.index.get_reputation(lab.chainId, donor.publicKey, km.publicKey);
+  const weight = await lab.index.get_reputation(lab.chainId, donor.publicKey, recipient.publicKey);
   console.log(`вес голоса вкладчика: ${weight} (кворум 150000)`);
   if (weight < 150_000n) throw new Error("веса не хватит на кворум — сначала донат");
 
   // ---- 1. the collection ----
-  const kmNonce = BigInt(Math.floor(Date.now() / 1000));
+  const recipientNonce = BigInt(Math.floor(Date.now() / 1000));
   // The id hashes the raw principal bytes; the message names it in text.
-  const id = collectionId(Principal.fromText(lab.ids.funding).toUint8Array(), km.publicKey, kmNonce);
+  const id = collectionId(Principal.fromText(lab.ids.funding).toUint8Array(), recipient.publicKey, recipientNonce);
   const createMessage = collectionMessage(lab.chainId, lab.ids.funding, id, {
     kind: "create",
     goal: GOAL,
@@ -47,11 +47,11 @@ async function main(): Promise<void> {
   console.log(show(createMessage));
   const created = await lab.funding.create_collection({
     chain: lab.chainId,
-    km: km.publicKey,
-    km_nonce: kmNonce,
+    recipient: recipient.publicKey,
+    km_nonce: recipientNonce,
     goal: GOAL,
     duration: DURATION,
-    signature: await km.signMessage(createMessage),
+    signature: await recipient.signMessage(createMessage),
   });
   if ("Err" in created) throw new Error(`create_collection: ${created.Err}`);
   if (hex(asBytes(created.Ok)) !== hex(id)) throw new Error("collection_id канистры ≠ локальный");
@@ -69,7 +69,7 @@ async function main(): Promise<void> {
   const { instruction, escrow } = twoOutcomeCreateIx(
     {
       donor: donor.publicKey,
-      streamer: km.publicKey,
+      recipient: recipient.publicKey,
       gross: CONTRIBUTION,
       deadline,
       resolver: resolverBytes,
@@ -81,30 +81,30 @@ async function main(): Promise<void> {
   );
   console.log(`вклад ${escrow.toBase58()}: ${await send(lab.connection, donor, [instruction])}`);
 
-  // ---- 3. released, then the vote ----
-  const releasedMessage = collectionMessage(lab.chainId, lab.ids.funding, id, { kind: "released" });
-  const released = await lab.funding.released({
+  // ---- 3. ready, then the vote ----
+  const readyMessage = collectionMessage(lab.chainId, lab.ids.funding, id, { kind: "ready" });
+  const ready = await lab.funding.ready({
     chain: lab.chainId,
     collection_id: id,
-    signature: await km.signMessage(releasedMessage),
+    signature: await recipient.signMessage(readyMessage),
   });
-  if ("Err" in released) throw new Error(`released: ${released.Err}`);
-  console.log("✓ released: коллекция ушла в голосование");
+  if ("Err" in ready) throw new Error(`ready: ${ready.Err}`);
+  console.log("✓ ready: коллекция ушла в голосование");
 
   const voteMessage = collectionMessage(lab.chainId, lab.ids.funding, id, {
     kind: "vote",
-    choice: FUNDING_CHOICE.released,
+    choice: FUNDING_CHOICE.done,
   });
   console.log(show(voteMessage));
   const voted = await lab.funding.vote({
     chain: lab.chainId,
     collection_id: id,
     voter: donor.publicKey,
-    choice: { released: null },
+    choice: { done: null },
     signature: await donor.signMessage(voteMessage),
   });
   if ("Err" in voted) throw new Error(`vote: ${voted.Err}`);
-  console.log("✓ голос released принят, вес взят из книги");
+  console.log("✓ голос done принят, вес взят из книги");
 
   // ---- 4. the verdict ----
   // The window closing is not the verdict: the canister's timer (30 s) moves
@@ -143,28 +143,29 @@ async function main(): Promise<void> {
   const account = await lab.connection.getAccountInfo(escrow);
   if (!account) throw new Error("эскроу исчез");
   const decoded = decodeTwoOutcome(new Uint8Array(account.data));
-  const kmBefore = await balancesOf(lab.connection, kmKey, lab.addresses.usdc);
-  const bookBefore = await lab.index.get_reputation(lab.chainId, donor.publicKey, km.publicKey);
+  const recipientBefore = await balancesOf(lab.connection, recipientKey, lab.addresses.usdc);
+  const bookBefore = await lab.index.get_reputation(lab.chainId, donor.publicKey, recipient.publicKey);
   const message = twoOutcomeVerdictMessage(lab.domains.twoOutcome, lab.addresses.factoryTwoOutcome, escrow, 0);
   const tx = await send(lab.connection, donor, [
-    createAtaIx(donorKey, kmKey, lab.addresses.usdc),
+    createAtaIx(donorKey, recipientKey, lab.addresses.usdc),
     createAtaIx(donorKey, lab.feeWallet, lab.addresses.usdc),
     ed25519VerifyIx(decoded.resolver, asBytes(signed.Ok.signature), message),
     twoOutcomeClaimIx(escrow, decoded, 0, lab.addresses),
   ]);
   console.log(`claim(0): ${tx}`);
   const fee = (CONTRIBUTION * BigInt(lab.feeBps)) / 10_000n;
-  const kmAfter = await balancesOf(lab.connection, kmKey, lab.addresses.usdc);
-  const payout = (kmAfter.usdc ?? 0n) - (kmBefore.usdc ?? 0n);
-  if (payout !== CONTRIBUTION - fee) throw new Error(`КМ получил ${payout}, ожидалось ${CONTRIBUTION - fee}`);
-  console.log(`✓ КМ получил ${formatUsdc(payout)} USDC (вклад ${CONTRIBUTION} − комиссия ${fee})`);
+  const recipientAfter = await balancesOf(lab.connection, recipientKey, lab.addresses.usdc);
+  const payout = (recipientAfter.usdc ?? 0n) - (recipientBefore.usdc ?? 0n);
+  if (payout !== CONTRIBUTION - fee) throw new Error(`получатель получил ${payout}, ожидалось ${CONTRIBUTION - fee}`);
+  console.log(`✓ получатель получил ${formatUsdc(payout)} USDC (вклад ${CONTRIBUTION} − комиссия ${fee})`);
 
   // ---- 6. the book credits the CONTRIBUTOR ----
   const expected = bookBefore + CONTRIBUTION - fee;
-  process.stdout.write("жду ингеста расчёта");
+  await lab.index.ingest_hint();
+  process.stdout.write("жду ингеста расчёта (будильник позвонил)");
   let final = 0n;
   for (let attempt = 0; attempt < 30; attempt++) {
-    final = await lab.index.get_reputation(lab.chainId, donor.publicKey, km.publicKey);
+    final = await lab.index.get_reputation(lab.chainId, donor.publicKey, recipient.publicKey);
     if (final >= expected) break;
     process.stdout.write(".");
     await sleep(10);

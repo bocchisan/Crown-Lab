@@ -80,7 +80,7 @@ test("stream salt matches every factory vector", () => {
 test("two-outcome salt matches the reference vector", () => {
   const salt = twoOutcomeSalt({
     donor: new Uint8Array(32).fill(0x11),
-    streamer: new Uint8Array(32).fill(0x22),
+    recipient: new Uint8Array(32).fill(0x22),
     gross: 1_000_000n,
     deadline: 1_900_000_000n,
     resolver: new Uint8Array(32).fill(0x33),
@@ -96,7 +96,7 @@ test("two-outcome salt matches the reference vector", () => {
 test("every two-outcome birth field separates the salt", () => {
   const base = {
     donor: new Uint8Array(32).fill(0x11),
-    streamer: new Uint8Array(32).fill(0x22),
+    recipient: new Uint8Array(32).fill(0x22),
     gross: 1_000_000n,
     deadline: 1_900_000_000n,
     resolver: new Uint8Array(32).fill(0x33),
@@ -106,7 +106,7 @@ test("every two-outcome birth field separates the salt", () => {
   };
   const mutations = [
     { ...base, donor: new Uint8Array(32).fill(0x12) },
-    { ...base, streamer: new Uint8Array(32).fill(0x23) },
+    { ...base, recipient: new Uint8Array(32).fill(0x23) },
     { ...base, gross: 1_000_001n },
     { ...base, deadline: 1_900_000_001n },
     { ...base, resolver: new Uint8Array(32).fill(0x34) },
@@ -124,7 +124,7 @@ test("salts refuse fields of the wrong length", () => {
   assert.throws(() =>
     twoOutcomeSalt({
       donor: new Uint8Array(31),
-      streamer: new Uint8Array(32),
+      recipient: new Uint8Array(32),
       gross: 1n,
       deadline: 1n,
       resolver: new Uint8Array(32),

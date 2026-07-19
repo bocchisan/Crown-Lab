@@ -10,7 +10,7 @@ export interface TaskEntry {
   escrow: string;
   taskId: string;
   donor: string;
-  streamer: string;
+  recipient: string;
   gross: string;
   deadline: string;
   duration: string;
@@ -28,12 +28,31 @@ export interface Contribution {
 
 export interface CollectionEntry {
   collectionId: string;
-  km: string;
-  kmNonce: string;
+  recipient: string;
+  recipientNonce: string;
   goal: string;
   duration: string;
   resolver: string;
   contributions: Contribution[];
+}
+
+export interface LotEntry {
+  lotId: string;
+  /** The lot's condition in the clear; its sha256 is the canister's text_hash. */
+  text: string;
+  textHash: string;
+  resolver: string;
+  entries: Contribution[];
+}
+
+export interface AuctionEntry {
+  auctionId: string;
+  recipient: string;
+  recipientNonce: string;
+  duration: string;
+  performWindow: string;
+  minEntry: string;
+  lots: LotEntry[];
 }
 
 export interface SubscriptionEntry {
@@ -51,18 +70,40 @@ export interface SubscriptionEntry {
 interface Shape {
   tasks: TaskEntry[];
   collections: CollectionEntry[];
+  auctions: AuctionEntry[];
   subscriptions: SubscriptionEntry[];
 }
 
 const KEY = "crown-lab:store";
 
-const EMPTY: Shape = { tasks: [], collections: [], subscriptions: [] };
+const EMPTY: Shape = { tasks: [], collections: [], auctions: [], subscriptions: [] };
+
+/**
+ * Entries written before the big rename carry the old field names. The
+ * declarations are the only key to those escrows, so they are migrated in
+ * place instead of being dropped.
+ */
+function migrate(shape: Shape): Shape {
+  for (const task of shape.tasks) {
+    const legacy = task as TaskEntry & { streamer?: string };
+    if (legacy.streamer && !task.recipient) task.recipient = legacy.streamer;
+    delete legacy.streamer;
+  }
+  for (const collection of shape.collections) {
+    const legacy = collection as CollectionEntry & { km?: string; kmNonce?: string };
+    if (legacy.km && !collection.recipient) collection.recipient = legacy.km;
+    if (legacy.kmNonce && !collection.recipientNonce) collection.recipientNonce = legacy.kmNonce;
+    delete legacy.km;
+    delete legacy.kmNonce;
+  }
+  return shape;
+}
 
 export function load(): Shape {
   const raw = localStorage.getItem(KEY);
   if (!raw) return structuredClone(EMPTY);
   try {
-    return { ...structuredClone(EMPTY), ...(JSON.parse(raw) as Partial<Shape>) };
+    return migrate({ ...structuredClone(EMPTY), ...(JSON.parse(raw) as Partial<Shape>) });
   } catch {
     return structuredClone(EMPTY);
   }

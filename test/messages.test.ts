@@ -7,16 +7,21 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { Message, PublicKey, VersionedMessage } from "@solana/web3.js";
+import bs58 from "bs58";
 
 import { concat, hex, u8, u16le, utf8 } from "../src/bytes.ts";
 import {
+  AUCTION_CHOICE,
   TASK_CHOICE,
   FUNDING_CHOICE,
+  auctionId,
+  auctionMessage,
   cancelAuthorization,
   cancelMessage,
-  channelMessage,
   collectionId,
   collectionMessage,
+  lotId,
+  profileMessage,
   releaseMessage,
   taskMessage,
   twoOutcomeVerdictMessage,
@@ -24,7 +29,7 @@ import {
 
 // The canister's own unit vectors (Conditional-Tasks canister/src/auth.rs:
 // accept_message_is_pinned, register_message_is_pinned, vote_message_is_pinned,
-// channel_message_is_pinned). If these two ever disagree, every signature this
+// profile_message_is_pinned). If these two ever disagree, every signature this
 // page produces is rejected — so the strings are compared literally.
 const CANISTER = "vizcg-th777-77774-qaaea-cai";
 /** base58 of [0xCC; 32]. */
@@ -63,6 +68,19 @@ test("register message matches the canister's vector", () => {
   );
 });
 
+test("ready and operator-refund messages match the canister's vectors", () => {
+  for (const kind of ["ready", "operator-refund"] as const) {
+    assert.equal(
+      text(taskMessage("solana-devnet", CANISTER, TASK_ID, { kind })),
+      "crown:conditional-tasks:v1\n" +
+        `action: ${kind}\n` +
+        "chain: solana-devnet\n" +
+        `canister: ${CANISTER}\n` +
+        `task: ${TASK_B58}\n`,
+    );
+  }
+});
+
 test("vote message matches the canister's vector", () => {
   for (const choice of [TASK_CHOICE.done, TASK_CHOICE.notDone]) {
     assert.equal(
@@ -77,14 +95,14 @@ test("vote message matches the canister's vector", () => {
   }
 });
 
-test("channel message matches the canister's vector", () => {
+test("profile message matches the canister's vector", () => {
   assert.equal(
-    text(channelMessage("solana-devnet", CANISTER, new Uint8Array(32).fill(0x02), 34n, 5n, true, 7n)),
+    text(profileMessage("solana-devnet", CANISTER, new Uint8Array(32).fill(0x02), 34n, 5n, true, 7n)),
     "crown:conditional-tasks:v1\n" +
-      "action: set-channel-params\n" +
+      "action: set-profile\n" +
       "chain: solana-devnet\n" +
       `canister: ${CANISTER}\n` +
-      "streamer: 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR\n" +
+      "recipient: 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR\n" +
       "min_gross: 34\n" +
       "min_reputation: 5\n" +
       "enabled: true\n" +
@@ -94,7 +112,8 @@ test("channel message matches the canister's vector", () => {
 
 test("action and choice words are pinned", () => {
   assert.deepEqual(TASK_CHOICE, { done: "done", notDone: "not_done" });
-  assert.deepEqual(FUNDING_CHOICE, { released: "released", notReleased: "not_released" });
+  assert.deepEqual(FUNDING_CHOICE, { done: "done", notDone: "not_done" });
+  assert.deepEqual(AUCTION_CHOICE, { done: "done", notDone: "not_done" });
 });
 
 /**
@@ -112,14 +131,15 @@ test("every Tasks message a wallet must sign is UTF-8 and not a transaction", ()
   const messages = [
     taskMessage("solana-devnet", CANISTER, TASK_ID, { kind: "accept" }),
     taskMessage("solana-devnet", CANISTER, TASK_ID, { kind: "decline" }),
-    taskMessage("solana-devnet", CANISTER, TASK_ID, { kind: "done" }),
+    taskMessage("solana-devnet", CANISTER, TASK_ID, { kind: "ready" }),
+    taskMessage("solana-devnet", CANISTER, TASK_ID, { kind: "operator-refund" }),
     taskMessage("solana-devnet", CANISTER, TASK_ID, { kind: "vote", choice: TASK_CHOICE.done }),
     taskMessage("solana-devnet", CANISTER, TASK_ID, {
       kind: "register",
       textHash: new Uint8Array(32).fill(0xff),
       duration: 18_446_744_073_709_551_615n,
     }),
-    channelMessage("solana-devnet", CANISTER, new Uint8Array(32).fill(0xff), 34n, 5n, false, 7n),
+    profileMessage("solana-devnet", CANISTER, new Uint8Array(32).fill(0xff), 34n, 5n, false, 7n),
   ];
   for (const message of messages) {
     // Strict decoding throws on any byte that is not valid UTF-8.
@@ -133,20 +153,23 @@ test("every Tasks message a wallet must sign is UTF-8 and not a transaction", ()
 });
 
 // The Funding canister's own vectors (Conditional-Funding canister/src/auth.rs:
-// released_message_is_pinned, create_message_is_pinned, vote_message_is_pinned).
+// ready_message_is_pinned, recipient_cancel_message_is_pinned,
+// create_message_is_pinned, vote_message_is_pinned).
 const FUNDING_CANISTER = "vpyes-67777-77774-qaaeq-cai";
 const COLLECTION = new Uint8Array(32).fill(0xcc);
 const COLLECTION_HEX = "cc".repeat(32);
 
-test("released message matches the canister's vector", () => {
-  assert.equal(
-    text(collectionMessage("solana-devnet", FUNDING_CANISTER, COLLECTION, { kind: "released" })),
-    "crown:conditional-funding:v1\n" +
-      "action: released\n" +
-      "chain: solana-devnet\n" +
-      `canister: ${FUNDING_CANISTER}\n` +
-      `collection: ${COLLECTION_HEX}\n`,
-  );
+test("funding ready, cancel and operator-refund messages match the canister's vectors", () => {
+  for (const kind of ["ready", "cancel", "operator-refund"] as const) {
+    assert.equal(
+      text(collectionMessage("solana-devnet", FUNDING_CANISTER, COLLECTION, { kind })),
+      "crown:conditional-funding:v1\n" +
+        `action: ${kind}\n` +
+        "chain: solana-devnet\n" +
+        `canister: ${FUNDING_CANISTER}\n` +
+        `collection: ${COLLECTION_HEX}\n`,
+    );
+  }
 });
 
 test("create message matches the canister's vector", () => {
@@ -169,7 +192,7 @@ test("create message matches the canister's vector", () => {
 });
 
 test("funding vote message matches the canister's vector", () => {
-  for (const choice of [FUNDING_CHOICE.released, FUNDING_CHOICE.notReleased]) {
+  for (const choice of [FUNDING_CHOICE.done, FUNDING_CHOICE.notDone]) {
     assert.equal(
       text(collectionMessage("solana-devnet", FUNDING_CANISTER, COLLECTION, { kind: "vote", choice })),
       "crown:conditional-funding:v1\n" +
@@ -197,10 +220,109 @@ test("collection id matches the cross-tool vector", () => {
 // The principal is length-prefixed precisely so principals of different
 // lengths cannot collide into one id.
 test("collection id is injective in the principal length", () => {
-  const km = new Uint8Array(32).fill(0x22);
-  const short = collectionId(new Uint8Array([0x01]), km, 1n);
-  const long = collectionId(new Uint8Array([0x01, 0x00]), km, 1n);
+  const recipient = new Uint8Array(32).fill(0x22);
+  const short = collectionId(new Uint8Array([0x01]), recipient, 1n);
+  const long = collectionId(new Uint8Array([0x01, 0x00]), recipient, 1n);
   assert.notEqual(hex(short), hex(long));
+});
+
+// The Auction canister's own vectors (Auction canister/src/auth.rs: every
+// *_message_is_pinned test plus the auction_id/lot_id reference vectors).
+const AUCTION_CANISTER = "vpyes-67777-77774-qaaeq-cai";
+const AUCTION_ID = new Uint8Array(32).fill(0xaa);
+const AUCTION_HEX = "aa".repeat(32);
+const LOT = new Uint8Array(32).fill(0xbb);
+const LOT_HEX = "bb".repeat(32);
+const ENTRY_ESCROW = new Uint8Array(32).fill(0x11);
+
+test("auction create message matches the canister's vector", () => {
+  assert.equal(
+    text(
+      auctionMessage("solana-devnet", AUCTION_CANISTER, AUCTION_ID, {
+        kind: "create",
+        recipientNonce: 7n,
+        duration: 86_400n,
+        performWindow: 43_200n,
+        minEntry: 50n,
+      }),
+    ),
+    "crown:auction:v1\n" +
+      "action: create\n" +
+      "chain: solana-devnet\n" +
+      `canister: ${AUCTION_CANISTER}\n` +
+      "recipient_nonce: 7\n" +
+      "duration: 86400\n" +
+      "perform_window: 43200\n" +
+      "min_entry: 50\n",
+  );
+});
+
+test("auction lot messages match the canister's vectors", () => {
+  for (const kind of ["accept", "return-lot", "operator-refund-lot"] as const) {
+    assert.equal(
+      text(auctionMessage("solana-devnet", AUCTION_CANISTER, AUCTION_ID, { kind, lot: LOT })),
+      "crown:auction:v1\n" +
+        `action: ${kind}\n` +
+        "chain: solana-devnet\n" +
+        `canister: ${AUCTION_CANISTER}\n` +
+        `auction: ${AUCTION_HEX}\n` +
+        `lot: ${LOT_HEX}\n`,
+    );
+  }
+});
+
+test("auction entry messages match the canister's vectors", () => {
+  for (const kind of ["return-entry", "operator-refund-entry"] as const) {
+    assert.equal(
+      text(auctionMessage("solana-devnet", AUCTION_CANISTER, AUCTION_ID, { kind, escrow: ENTRY_ESCROW })),
+      "crown:auction:v1\n" +
+        `action: ${kind}\n` +
+        "chain: solana-devnet\n" +
+        `canister: ${AUCTION_CANISTER}\n` +
+        `auction: ${AUCTION_HEX}\n` +
+        `escrow: ${bs58.encode(ENTRY_ESCROW)}\n`,
+    );
+  }
+});
+
+test("auction bare messages match the canister's vectors", () => {
+  for (const kind of ["cancel", "ready", "operator-cancel"] as const) {
+    assert.equal(
+      text(auctionMessage("solana-devnet", AUCTION_CANISTER, AUCTION_ID, { kind })),
+      "crown:auction:v1\n" +
+        `action: ${kind}\n` +
+        "chain: solana-devnet\n" +
+        `canister: ${AUCTION_CANISTER}\n` +
+        `auction: ${AUCTION_HEX}\n`,
+    );
+  }
+});
+
+test("auction vote message matches the canister's vector", () => {
+  for (const choice of [AUCTION_CHOICE.done, AUCTION_CHOICE.notDone]) {
+    assert.equal(
+      text(auctionMessage("solana-devnet", AUCTION_CANISTER, AUCTION_ID, { kind: "vote", choice })),
+      "crown:auction:v1\n" +
+        "action: vote\n" +
+        "chain: solana-devnet\n" +
+        `canister: ${AUCTION_CANISTER}\n` +
+        `auction: ${AUCTION_HEX}\n` +
+        `choice: ${choice}\n`,
+    );
+  }
+});
+
+/**
+ * Cross-tool vectors from the Auction canister's tests:
+ *   auction_id = sha256(b"crown:auction" + bytes([10]) + bytes([0x01]*10)
+ *                + bytes([0x22]*32) + struct.pack("<Q", 7))
+ *   lot_id     = sha256(bytes([0xAA]*32) + bytes([0xBB]*32))
+ */
+test("auction and lot ids match the cross-tool vectors", () => {
+  const auction = auctionId(new Uint8Array(10).fill(0x01), new Uint8Array(32).fill(0x22), 7n);
+  assert.equal(hex(auction), "166b43c4ed39cd43693e547bb52ce1c60acce8db5786b6e4d56547e67f018f47");
+  const lot = lotId(AUCTION_ID, LOT);
+  assert.equal(hex(lot), "e2d80f78d79027556d6619a1400605abbdca6bb6eb24e0831e33ecd5466fa5f6");
 });
 
 // Mirror of the Subscription canister's cancel_authorization_is_pinned test.
@@ -217,9 +339,9 @@ test("cancel authorization matches the canister's vector", () => {
 
 // The same requirement as for Tasks, for every remaining wallet-signed message:
 // Phantom signs valid UTF-8 and nothing else.
-test("Funding and Subscription messages a wallet must sign are UTF-8", () => {
+test("Funding, Auction and Subscription messages a wallet must sign are UTF-8", () => {
   const messages = [
-    collectionMessage("solana-devnet", FUNDING_CANISTER, COLLECTION, { kind: "released" }),
+    collectionMessage("solana-devnet", FUNDING_CANISTER, COLLECTION, { kind: "ready" }),
     collectionMessage("solana-devnet", FUNDING_CANISTER, new Uint8Array(32).fill(0xff), {
       kind: "create",
       goal: 18_446_744_073_709_551_615n,
@@ -227,7 +349,19 @@ test("Funding and Subscription messages a wallet must sign are UTF-8", () => {
     }),
     collectionMessage("solana-devnet", FUNDING_CANISTER, COLLECTION, {
       kind: "vote",
-      choice: FUNDING_CHOICE.notReleased,
+      choice: FUNDING_CHOICE.notDone,
+    }),
+    auctionMessage("solana-devnet", AUCTION_CANISTER, new Uint8Array(32).fill(0xff), {
+      kind: "create",
+      recipientNonce: 18_446_744_073_709_551_615n,
+      duration: 18_446_744_073_709_551_615n,
+      performWindow: 18_446_744_073_709_551_615n,
+      minEntry: 18_446_744_073_709_551_615n,
+    }),
+    auctionMessage("solana-devnet", AUCTION_CANISTER, AUCTION_ID, { kind: "accept", lot: LOT }),
+    auctionMessage("solana-devnet", AUCTION_CANISTER, AUCTION_ID, {
+      kind: "vote",
+      choice: AUCTION_CHOICE.notDone,
     }),
     cancelAuthorization("solana-devnet", "vg3po-ix777-77774-qaafa-cai", new Uint8Array(32).fill(0xff)),
   ];

@@ -30,6 +30,12 @@
       "candid": "../Crown-Games/Subscription/canister/subscription.did",
       "build": []
     },
+    "auction": {
+      "type": "custom",
+      "wasm": "../Crown-Games/Auction/target/wasm32-unknown-unknown/release/auction.wasm",
+      "candid": "../Crown-Games/Auction/canister/auction.did",
+      "build": []
+    },
     "pad1": {
       "type": "custom",
       "wasm": "../Crown-Core/target/wasm32-unknown-unknown/release/crown_index.wasm",

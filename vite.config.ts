@@ -36,6 +36,7 @@ function chainConfig() {
     crownIndex: value("crown_index"),
     conditionalTasks: value("conditional_tasks"),
     conditionalFunding: value("conditional_funding"),
+    auction: value("auction"),
     subscription: value("subscription"),
   };
 }

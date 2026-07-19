@@ -94,7 +94,7 @@ function reader(data: Uint8Array, shape: string): Reader {
 export interface TwoOutcomeEscrow {
   donor: Uint8Array;
   salt: Uint8Array;
-  streamer: Uint8Array;
+  recipient: Uint8Array;
   resolver: Uint8Array;
   gross: bigint;
   deadline: bigint;
@@ -111,7 +111,7 @@ export function decodeTwoOutcome(data: Uint8Array): TwoOutcomeEscrow {
   return {
     donor: r.pubkey(),
     salt: r.bytes(32),
-    streamer: r.pubkey(),
+    recipient: r.pubkey(),
     resolver: r.pubkey(),
     gross: r.u64(),
     deadline: r.i64(),

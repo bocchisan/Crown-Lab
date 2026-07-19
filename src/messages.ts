@@ -32,7 +32,8 @@ export type TaskAction =
   | { kind: "register"; textHash: Uint8Array; duration: bigint }
   | { kind: "accept" }
   | { kind: "decline" }
-  | { kind: "done" }
+  | { kind: "ready" }
+  | { kind: "operator-refund" }
   | { kind: "vote"; choice: TaskChoiceWord };
 
 /**
@@ -69,19 +70,19 @@ export function taskMessage(
 
 /**
  * crown:conditional-tasks:v1
- * action: set-channel-params
+ * action: set-profile
  * chain: solana-devnet
  * canister: vizcg-th777-77774-qaaea-cai
- * streamer: Gt381v8RqGQUX7vdRbC9NdZCzGuzk6ZUgcTDLfUnYdcJ
+ * recipient: Gt381v8RqGQUX7vdRbC9NdZCzGuzk6ZUgcTDLfUnYdcJ
  * min_gross: 34
  * min_reputation: 0
  * enabled: true
  * counter: 7
  */
-export function channelMessage(
+export function profileMessage(
   chain: string,
   canisterId: string,
-  streamer: Uint8Array,
+  recipient: Uint8Array,
   minGross: bigint,
   minReputation: bigint,
   enabled: boolean,
@@ -89,10 +90,10 @@ export function channelMessage(
 ): Uint8Array {
   return utf8(
     `${TASKS_DOMAIN}\n` +
-      `action: set-channel-params\n` +
+      `action: set-profile\n` +
       `chain: ${chain}\n` +
       `canister: ${canisterId}\n` +
-      `streamer: ${bs58.encode(streamer)}\n` +
+      `recipient: ${bs58.encode(recipient)}\n` +
       `min_gross: ${minGross}\n` +
       `min_reputation: ${minReputation}\n` +
       `enabled: ${enabled}\n` +
@@ -110,12 +111,14 @@ export const FUNDING_DOMAIN = "crown:conditional-funding:v1";
 export const COLLECTION_TAG = "crown:conditional-funding";
 
 /** The words the message uses, frozen with the protocol. */
-export const FUNDING_CHOICE = { released: "released", notReleased: "not_released" } as const;
+export const FUNDING_CHOICE = { done: "done", notDone: "not_done" } as const;
 export type FundingChoiceWord = (typeof FUNDING_CHOICE)[keyof typeof FUNDING_CHOICE];
 
 export type FundingAction =
   | { kind: "create"; goal: bigint; duration: bigint }
-  | { kind: "released" }
+  | { kind: "ready" }
+  | { kind: "cancel" }
+  | { kind: "operator-refund" }
   | { kind: "vote"; choice: FundingChoiceWord };
 
 /**
@@ -124,9 +127,10 @@ export type FundingAction =
  * chain: solana-devnet
  * canister: vpyes-67777-77774-qaaeq-cai
  * collection: 8290545b…
- * choice: released
+ * choice: done
  *
- * `create` adds `goal:` and `duration:`; `released` adds nothing.
+ * `create` adds `goal:` and `duration:`; `ready`, `cancel` and
+ * `operator-refund` add nothing.
  */
 export function collectionMessage(
   chain: string,
@@ -150,13 +154,118 @@ export function collectionMessage(
 }
 
 /**
- * collection_id = sha256(TAG ‖ len(canister_id) u8 ‖ canister_id ‖ km ‖
- * km_nonce_le) — still binary, and deliberately: it is the derivation path of
- * the collection's resolver, not a message anyone signs. The principal is
- * length-prefixed so principals of different lengths cannot collide.
+ * collection_id = sha256(TAG ‖ len(canister_id) u8 ‖ canister_id ‖ recipient ‖
+ * recipient_nonce_le) — still binary, and deliberately: it is the derivation
+ * path of the collection's resolver, not a message anyone signs. The principal
+ * is length-prefixed so principals of different lengths cannot collide.
  */
-export function collectionId(canisterId: Uint8Array, km: Uint8Array, kmNonce: bigint): Uint8Array {
-  return sha256(concat(utf8(COLLECTION_TAG), u8(canisterId.length), canisterId, km, u64le(kmNonce)));
+export function collectionId(
+  canisterId: Uint8Array,
+  recipient: Uint8Array,
+  recipientNonce: bigint,
+): Uint8Array {
+  return sha256(
+    concat(utf8(COLLECTION_TAG), u8(canisterId.length), canisterId, recipient, u64le(recipientNonce)),
+  );
+}
+
+// ---- Auction (crown:auction:v1) ------------------------------------------
+//
+// The same text discipline as Tasks and Funding. The auction and lot ids are
+// hex in the message (opaque hashes), escrows are base58 (addresses).
+
+export const AUCTION_DOMAIN = "crown:auction:v1";
+/** Unversioned: a key derivation input, not a signature domain. */
+export const AUCTION_TAG = "crown:auction";
+
+/** The words the message uses, frozen with the protocol. */
+export const AUCTION_CHOICE = { done: "done", notDone: "not_done" } as const;
+export type AuctionChoiceWord = (typeof AUCTION_CHOICE)[keyof typeof AUCTION_CHOICE];
+
+export type AuctionAction =
+  | {
+      kind: "create";
+      recipientNonce: bigint;
+      duration: bigint;
+      performWindow: bigint;
+      minEntry: bigint;
+    }
+  | { kind: "accept"; lot: Uint8Array }
+  | { kind: "return-lot"; lot: Uint8Array }
+  | { kind: "return-entry"; escrow: Uint8Array }
+  | { kind: "cancel" }
+  | { kind: "ready" }
+  | { kind: "operator-refund-lot"; lot: Uint8Array }
+  | { kind: "operator-refund-entry"; escrow: Uint8Array }
+  | { kind: "operator-cancel" }
+  | { kind: "vote"; choice: AuctionChoiceWord };
+
+/**
+ * crown:auction:v1
+ * action: accept
+ * chain: solana-devnet
+ * canister: v27v7-7x777-77774-qaaha-cai
+ * auction: 166b43c4…
+ * lot: e2d80f78…
+ *
+ * The first five lines open every action except `create`, which has no
+ * `auction:` line and adds `recipient_nonce:`, `duration:`,
+ * `perform_window:` and `min_entry:` instead. `accept`, `return-lot` and
+ * `operator-refund-lot` add `lot:` (hex); `return-entry` and
+ * `operator-refund-entry` add `escrow:` (base58); `vote` adds `choice:`.
+ */
+export function auctionMessage(
+  chain: string,
+  canisterId: string,
+  auctionId: Uint8Array,
+  action: AuctionAction,
+): Uint8Array {
+  let out = `${AUCTION_DOMAIN}\n`;
+  out += `action: ${action.kind}\n`;
+  out += `chain: ${chain}\n`;
+  out += `canister: ${canisterId}\n`;
+  if (action.kind !== "create") {
+    // The auction id is an opaque hash, not an address: hex is its form.
+    out += `auction: ${hex(auctionId)}\n`;
+  }
+  if (action.kind === "create") {
+    out += `recipient_nonce: ${action.recipientNonce}\n`;
+    out += `duration: ${action.duration}\n`;
+    out += `perform_window: ${action.performWindow}\n`;
+    out += `min_entry: ${action.minEntry}\n`;
+  } else if (action.kind === "accept" || action.kind === "return-lot" || action.kind === "operator-refund-lot") {
+    out += `lot: ${hex(action.lot)}\n`;
+  } else if (action.kind === "return-entry" || action.kind === "operator-refund-entry") {
+    out += `escrow: ${bs58.encode(action.escrow)}\n`;
+  } else if (action.kind === "vote") {
+    out += `choice: ${action.choice}\n`;
+  }
+  return utf8(out);
+}
+
+/**
+ * auction_id = sha256(TAG ‖ len(canister_id) u8 ‖ canister_id ‖ recipient ‖
+ * recipient_nonce_le) — the derivation path prefix of every lot resolver,
+ * a calque of the Funding collection id.
+ */
+export function auctionId(
+  canisterId: Uint8Array,
+  recipient: Uint8Array,
+  recipientNonce: bigint,
+): Uint8Array {
+  return sha256(
+    concat(utf8(AUCTION_TAG), u8(canisterId.length), canisterId, recipient, u64le(recipientNonce)),
+  );
+}
+
+/**
+ * lot_id = sha256(auction_id ‖ text_hash): both halves are fixed 32-byte
+ * hashes, so the concatenation is injective without prefixes. The lot's
+ * resolver is the threshold key at path [lot_id] — money, text and auction
+ * are bound by derivation.
+ */
+export function lotId(auctionIdBytes: Uint8Array, textHash: Uint8Array): Uint8Array {
+  return sha256(concat(auctionIdBytes, textHash));
 }
 
 // ---- Subscription (crown:subscription:v1) --------------------------------

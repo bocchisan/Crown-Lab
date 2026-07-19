@@ -56,7 +56,7 @@ test("two-outcome escrow decodes and its salt reproduces from its own fields", (
 
   const salt = twoOutcomeSalt({
     donor: escrow.donor,
-    streamer: escrow.streamer,
+    recipient: escrow.recipient,
     gross: escrow.gross,
     deadline: escrow.deadline,
     resolver: escrow.resolver,

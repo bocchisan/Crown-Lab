@@ -31,7 +31,7 @@ const chain: ChainAddresses = {
 };
 
 const donor = new PublicKey("2b6JQquqQDsS8o3DFDiaxFLKTFMro1YrvVq7aimV4FzD");
-const streamer = new PublicKey("Gt381v8RqGQUX7vdRbC9NdZCzGuzk6ZUgcTDLfUnYdcJ");
+const recipient = new PublicKey("Gt381v8RqGQUX7vdRbC9NdZCzGuzk6ZUgcTDLfUnYdcJ");
 const feeWallet = new PublicKey("3it64t7KXNip1C1BRYNh8ygeKyujWnaQrPSj3hV9TWbE");
 
 test("discriminators are sha256(\"global:<name>\")[..8]", () => {
@@ -76,16 +76,16 @@ test("ed25519 verify instruction is self-contained", () => {
 // The splitter's Donate accounts, in the order the program declares them;
 // event_authority and program come last, appended by #[event_cpi].
 test("donate names the splitter accounts in order", () => {
-  const ix = donateIx(donor, streamer, 100_000n, chain);
+  const ix = donateIx(donor, recipient, 100_000n, chain);
   const eventAuthority = PublicKey.findProgramAddressSync([utf8("__event_authority")], chain.splitter)[0];
   assert.deepEqual(
     ix.keys.map((key) => key.pubkey.toBase58()),
     [
       donor.toBase58(),
-      streamer.toBase58(),
+      recipient.toBase58(),
       chain.usdc.toBase58(),
       ata(donor, chain.usdc).toBase58(),
-      ata(streamer, chain.usdc).toBase58(),
+      ata(recipient, chain.usdc).toBase58(),
       TOKEN_PROGRAM_ID.toBase58(),
       eventAuthority.toBase58(),
       chain.splitter.toBase58(),
@@ -98,7 +98,7 @@ test("donate names the splitter accounts in order", () => {
 test("two-outcome create carries the birth fields in borsh order", () => {
   const birth = {
     donor: donor.toBytes(),
-    streamer: streamer.toBytes(),
+    recipient: recipient.toBytes(),
     gross: 30_000n,
     deadline: 1_900_000_000n,
     resolver: new Uint8Array(32).fill(0x33),
@@ -125,7 +125,7 @@ test("two-outcome create carries the birth fields in borsh order", () => {
     instruction.keys.map((key) => key.pubkey.toBase58()),
     [
       donor.toBase58(),
-      streamer.toBase58(),
+      recipient.toBase58(),
       chain.usdc.toBase58(),
       escrow.toBase58(),
       ata(donor, chain.usdc).toBase58(),
@@ -143,7 +143,7 @@ test("two-outcome claim names twelve accounts in order", () => {
   const escrow = new PublicKey("CszaaibvYybHEURAWc297DGg7wCF5NXQ7196dAQJsw7y");
   const ix = twoOutcomeClaimIx(
     escrow,
-    { donor: donor.toBytes(), streamer: streamer.toBytes(), feeWallet: feeWallet.toBytes() },
+    { donor: donor.toBytes(), recipient: recipient.toBytes(), feeWallet: feeWallet.toBytes() },
     0,
     chain,
   );
@@ -156,8 +156,8 @@ test("two-outcome claim names twelve accounts in order", () => {
       ata(escrow, chain.usdc).toBase58(),
       donor.toBase58(),
       ata(donor, chain.usdc).toBase58(),
-      streamer.toBase58(),
-      ata(streamer, chain.usdc).toBase58(),
+      recipient.toBase58(),
+      ata(recipient, chain.usdc).toBase58(),
       ata(feeWallet, chain.usdc).toBase58(),
       eventAuthority.toBase58(),
       chain.splitter.toBase58(),
@@ -176,15 +176,15 @@ test("stream release appends a pair per nonzero share", () => {
   const second = new PublicKey("ByQ5SXVFXM1zJRg5vDztqs4ZdRdRSSBgvoWvMAw5Rgcx");
   const state = {
     donor: donor.toBytes(),
-    recipients: [streamer.toBytes(), second.toBytes()],
+    recipients: [recipient.toBytes(), second.toBytes()],
     shares: [7000, 0],
     feeWallet: feeWallet.toBytes(),
   };
   const ix = streamReleaseIx(escrow, state, 1, chain);
   assert.equal(ix.keys.length, 12, "ten fixed + one pair; the zero share adds none");
-  assert.equal(ix.keys[10]?.pubkey.toBase58(), streamer.toBase58());
+  assert.equal(ix.keys[10]?.pubkey.toBase58(), recipient.toBase58());
   assert.equal(ix.keys[10]?.isWritable, false, "the recipient wallet is read-only");
-  assert.equal(ix.keys[11]?.pubkey.toBase58(), ata(streamer, chain.usdc).toBase58());
+  assert.equal(ix.keys[11]?.pubkey.toBase58(), ata(recipient, chain.usdc).toBase58());
   assert.equal(ix.keys[11]?.isWritable, true, "its ATA receives");
   assert.equal(hex(new Uint8Array(ix.data)), hex(concat(DISCRIMINATORS.release, u16le(1))));
 
@@ -195,7 +195,7 @@ test("stream release appends a pair per nonzero share", () => {
 test("stream create carries the vectors with u32 length prefixes", () => {
   const birth = {
     donor: donor.toBytes(),
-    recipients: [streamer.toBytes()],
+    recipients: [recipient.toBytes()],
     shares: [10_000],
     chunk: 40_000n,
     nChunks: 3,
@@ -212,7 +212,7 @@ test("stream create carries the vectors with u32 length prefixes", () => {
   // where K is a single byte. The two must not be confused.
   assert.equal(hex(data.slice(0, 8)), hex(DISCRIMINATORS.createEscrow));
   assert.equal(hex(data.slice(8, 12)), "01000000");
-  assert.equal(hex(data.slice(12, 44)), hex(streamer.toBytes()));
+  assert.equal(hex(data.slice(12, 44)), hex(recipient.toBytes()));
   assert.equal(hex(data.slice(44, 48)), "01000000", "shares vector is framed too");
   assert.equal(hex(data.slice(48, 50)), hex(u16le(10_000)));
 });

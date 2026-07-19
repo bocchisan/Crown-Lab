@@ -56,6 +56,14 @@ usdc      = "$USDC"
 factories = ["$FACTORIES"]
 EOF
 
+echo "== auction: local profile (its read side goes through the replica's sol_rpc)"
+# The auction is the sighted game: register_entry reads the escrow through the
+# SOL RPC canister, and the replica's own sol_rpc knows no Default sources —
+# so its profile swaps the source for the Custom devnet URL.
+sed -e "s|^source.*|source    = \"Custom:$SOL_RPC_URL\"|" \
+    -e "s|^consensus.*|consensus = \"equality\"|" \
+    "$GAMES/Auction/config/testnet.toml" > "$GAMES/Auction/config/local.toml"
+
 echo "== build the wasms"
 (cd "$CORE" && CROWN_PROFILE=local \
     CC_wasm32_unknown_unknown="$CORE/scripts/wasm-cc.sh" \
@@ -65,6 +73,10 @@ for game in Conditional-Tasks:conditional-tasks Conditional-Funding:conditional-
     dir=${game%%:*}; package=${game##*:}
     (cd "$GAMES/$dir" && cargo build --target wasm32-unknown-unknown --release -p "$package")
 done
+(cd "$GAMES/Auction" && CROWN_PROFILE=local \
+    CC_wasm32_unknown_unknown="$GAMES/Auction/scripts/wasm-cc.sh" \
+    AR_wasm32_unknown_unknown="$AR_WASM32" \
+    cargo build --target wasm32-unknown-unknown --release -p auction)
 
 # The replica must survive this script: never pipe `dfx start --background`
 # (the daemon inherits the pipe and the command hangs forever), and never run
@@ -105,13 +117,30 @@ else
 fi
 INDEX_ID=$(dfx canister id crown-index)
 
+# A live game canister gets the freshly built wasm (mode upgrade keeps its
+# stable state and its threshold key: the key depends only on the id).
+upgrade_if_alive() {
+    local name=$1 wasm=$2
+    if deployed "$name" && alive "$name"; then
+        dfx canister install "$name" --mode upgrade --wasm "$wasm" --yes \
+            || echo "WARN: upgrade of $name failed (это стоит прочитать)"
+    fi
+}
+
 deployed conditional-tasks || dfx deploy conditional-tasks --argument "(opt record {
     crown_index = opt principal \"$INDEX_ID\" })"
+upgrade_if_alive conditional-tasks "$GAMES/Conditional-Tasks/target/wasm32-unknown-unknown/release/conditional_tasks.wasm"
 deployed conditional-funding || dfx deploy conditional-funding --argument "(opt record {
     crown_index = opt principal \"$INDEX_ID\" })"
+upgrade_if_alive conditional-funding "$GAMES/Conditional-Funding/target/wasm32-unknown-unknown/release/conditional_funding.wasm"
 deployed subscription || dfx deploy subscription
+upgrade_if_alive subscription "$GAMES/Subscription/target/wasm32-unknown-unknown/release/subscription.wasm"
+deployed auction || dfx deploy auction --argument "(opt record {
+    sol_rpc = opt principal \"$(dfx canister id sol_rpc)\";
+    crown_index = opt principal \"$INDEX_ID\" })"
+upgrade_if_alive auction "$GAMES/Auction/target/wasm32-unknown-unknown/release/auction.wasm"
 
-for canister in crown-index conditional-tasks conditional-funding subscription; do
+for canister in crown-index conditional-tasks conditional-funding auction subscription; do
     dfx ledger fabricate-cycles --canister "$canister" --t 100 >/dev/null
 done
 
@@ -136,8 +165,12 @@ if [ -f "$RECORDED" ]; then
         exit 1
     fi
     echo "== id совпали с прежними: резолверы на месте"
+    if ! grep -q "^auction " "$RECORDED"; then
+        echo "auction $(dfx canister id auction)" >> "$RECORDED"
+        echo "== auction добавлен в $RECORDED"
+    fi
 else
-    for name in sol_rpc crown-index conditional-tasks conditional-funding subscription; do
+    for name in sol_rpc crown-index conditional-tasks conditional-funding subscription auction; do
         echo "$name $(dfx canister id "$name")"
     done > "$RECORDED"
     echo "== id записаны в $RECORDED: следующий запуск сверится с ними"
@@ -162,6 +195,7 @@ ic_host             = "http://127.0.0.1:$(dfx info webserver-port)"
 crown_index         = "$INDEX_ID"
 conditional_tasks   = "$(dfx canister id conditional-tasks)"
 conditional_funding = "$(dfx canister id conditional-funding)"
+auction             = "$(dfx canister id auction)"
 subscription        = "$(dfx canister id subscription)"
 EOF
 

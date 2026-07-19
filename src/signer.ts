@@ -1,4 +1,4 @@
-// Participants. Every scenario needs several of them — a donor, a streamer or
+// Participants. Every scenario needs several of them — a donor, a recipient or
 // KM, a voter, a second contributor — and each one both signs raw messages
 // (the canisters authorize by wallet signature) and signs transactions.
 //

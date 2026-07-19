@@ -2,7 +2,7 @@
 // the verdict its own state machine reached, and the shape enforces it.
 //
 // The whole scenario, in the order the e2e drives it:
-//   resolver → create escrow → register → accept|decline → done → vote →
+//   resolver → create escrow → register → accept|decline → ready → vote →
 //   (voting period) → verdict → claim(0|1);  refund() lives outside the game.
 
 import { sha256 } from "@noble/hashes/sha2.js";
@@ -14,7 +14,7 @@ import { decodeTwoOutcome, refuseIfSettled } from "../escrow.ts";
 import { createAtaIx, ed25519VerifyIx, twoOutcomeClaimIx, twoOutcomeCreateIx, twoOutcomeRefundIx } from "../ix.ts";
 import { type Lab, participantByAddress } from "../lab.ts";
 import { explorerAddress, explorerTx, formatUsdc, send } from "../net.ts";
-import { TASK_CHOICE, type TaskAction, taskMessage, twoOutcomeVerdictMessage } from "../messages.ts";
+import { TASK_CHOICE, taskMessage, twoOutcomeVerdictMessage } from "../messages.ts";
 import { type TaskEntry, load, update } from "../store.ts";
 import { button, el, field, labeled, link, log, logLink, row, section, short, span } from "../ui.ts";
 import { participantSelect, refreshBalances, selectedSigner } from "./participants.ts";
@@ -35,7 +35,7 @@ async function resolver(lab: Lab): Promise<Uint8Array> {
 
 export function tasksPanel(lab: Lab): HTMLElement {
   const donor = participantSelect(lab);
-  const streamer = participantSelect(lab);
+  const recipient = participantSelect(lab);
   const gross = field("USDC", "0.03", 8);
   const duration = field("duration", "3600", 7);
   const votingPeriod = field("voting_period", "120", 6);
@@ -43,7 +43,7 @@ export function tasksPanel(lab: Lab): HTMLElement {
 
   const createRow = row(
     labeled("донор", donor),
-    labeled("стример", streamer),
+    labeled("получатель", recipient),
     labeled("USDC", gross),
     labeled("duration, с", duration),
     labeled("voting_period, с", votingPeriod),
@@ -51,7 +51,7 @@ export function tasksPanel(lab: Lab): HTMLElement {
     button("1. создать эскроу", async () => {
       const key = await resolver(lab);
       const donorSigner = selectedSigner(lab, donor);
-      const streamerSigner = selectedSigner(lab, streamer);
+      const recipientSigner = selectedSigner(lab, recipient);
       const grossUnits = BigInt(Math.round(Number(gross.value) * 1e6));
       if (grossUnits < MIN_GROSS) throw new Error(`gross ниже пола игры (${MIN_GROSS} minor)`);
       const now = BigInt(Math.floor(Date.now() / 1000));
@@ -61,7 +61,7 @@ export function tasksPanel(lab: Lab): HTMLElement {
       const nonce = now;
       const birth = {
         donor: donorSigner.publicKey,
-        streamer: streamerSigner.publicKey,
+        recipient: recipientSigner.publicKey,
         gross: grossUnits,
         deadline,
         resolver: key,
@@ -76,7 +76,7 @@ export function tasksPanel(lab: Lab): HTMLElement {
         escrow: escrow.toBase58(),
         taskId: hex(escrow.toBytes()),
         donor: donorSigner.address,
-        streamer: streamerSigner.address,
+        recipient: recipientSigner.address,
         gross: grossUnits.toString(),
         deadline: deadline.toString(),
         duration: duration.value,
@@ -101,10 +101,10 @@ export function tasksPanel(lab: Lab): HTMLElement {
   return section(
     "Игра «Задания» — two-outcome",
     el("div", { className: "muted" }, [
-      "Донор вешает эскроу и регистрирует задание, стример принимает и отмечает выполненным, " +
+      "Донор вешает эскроу и регистрирует задание, получатель принимает и объявляет готовность, " +
         "держатели репутации голосуют. По истечении voting_period канистра решает и подписывает вердикт: " +
-        "settle → деньги стримеру через сплиттер (за вычетом комиссии игры), cancel → донору. " +
-        `Голос требует веса ≥ 100000 (донат ≥ 0.1 USDC этому же стримеру). Резолвер: ${resolverHex ? short(resolverHex) : "—"}`,
+        "settle → деньги получателю через сплиттер (за вычетом комиссии игры), cancel → донору. " +
+        `Голос требует веса ≥ 100000 (донат ≥ 0.1 USDC этому же получателю). Резолвер: ${resolverHex ? short(resolverHex) : "—"}`,
     ]),
     createRow,
     list,
@@ -115,16 +115,17 @@ function taskRow(lab: Lab, entry: TaskEntry): HTMLElement {
   const voter = participantSelect(lab, entry.donor);
   const state = el("div", { className: "muted" });
 
-  // accept/decline/done are the streamer's moves: the canister checks the
-  // signature against the streamer stored in the record, nobody else's.
+  // accept/decline/ready are the recipient's moves: the canister checks the
+  // signature against the recipient stored in the record, nobody else's.
+  // operator-refund is verified against the platform operator's wallet.
   const call = async (
-    method: "accept" | "decline" | "done",
+    method: "accept" | "decline" | "ready" | "operator_refund",
     signerAddress: string,
   ): Promise<void> => {
     if (!lab.tasks) throw new Error("canister id игры не задан");
     const actual = participantByAddress(lab, signerAddress);
     const message = taskMessage(lab.chainId, lab.ids.conditionalTasks, fromHex(entry.taskId), {
-      kind: method,
+      kind: method === "operator_refund" ? "operator-refund" : method,
     });
     const signature = await actual.signMessage(message);
     const out = await lab.tasks[method]({
@@ -188,7 +189,7 @@ function taskRow(lab: Lab, entry: TaskEntry): HTMLElement {
     const payer = selectedSigner(lab, voter);
     const message = twoOutcomeVerdictMessage(lab.domains.twoOutcome, lab.addresses.factoryTwoOutcome, escrow, outcome);
     const tx = await send(lab.connection, payer, [
-      createAtaIx(new PublicKey(payer.publicKey), new PublicKey(decoded.streamer), lab.addresses.usdc),
+      createAtaIx(new PublicKey(payer.publicKey), new PublicKey(decoded.recipient), lab.addresses.usdc),
       createAtaIx(new PublicKey(payer.publicKey), new PublicKey(decoded.feeWallet), lab.addresses.usdc),
       // The ed25519 record must sit immediately before the claim.
       ed25519VerifyIx(asBytes(decoded.resolver), asBytes(signature), message),
@@ -197,7 +198,7 @@ function taskRow(lab: Lab, entry: TaskEntry): HTMLElement {
     const fee = (decoded.gross * BigInt(decoded.feeBps)) / 10_000n;
     logLink(
       outcome === 0
-        ? `claim(0): стримеру ${formatUsdc(decoded.gross - fee)} USDC, комиссия игры ${formatUsdc(fee)}`
+        ? `claim(0): получателю ${formatUsdc(decoded.gross - fee)} USDC, комиссия игры ${formatUsdc(fee)}`
         : `claim(1): донору вернулось ${formatUsdc(decoded.gross)} USDC, книга не двигается`,
       "tx",
       explorerTx(tx),
@@ -222,7 +223,7 @@ function taskRow(lab: Lab, entry: TaskEntry): HTMLElement {
       const out = await lab.tasks.register_task({
         chain: lab.chainId,
         donor: donorSigner.publicKey,
-        streamer: new PublicKey(entry.streamer).toBytes(),
+        recipient: new PublicKey(entry.recipient).toBytes(),
         gross: BigInt(entry.gross),
         deadline: BigInt(entry.deadline),
         resolver: key,
@@ -235,9 +236,9 @@ function taskRow(lab: Lab, entry: TaskEntry): HTMLElement {
       log(`задание зарегистрировано: task_id ${short(entry.escrow)} (≡ адрес эскроу)`, "ok");
       await showState();
     }),
-    button("3. accept", () => call("accept", entry.streamer)),
-    button("decline", () => call("decline", entry.streamer)),
-    button("4. done", () => call("done", entry.streamer)),
+    button("3. accept", () => call("accept", entry.recipient)),
+    button("decline", () => call("decline", entry.recipient)),
+    button("4. ready", () => call("ready", entry.recipient)),
     labeled("голосует", voter),
     button("5. голос done", () => vote(lab, entry, voter, TASK_CHOICE.done)),
     button("голос not_done", () => vote(lab, entry, voter, TASK_CHOICE.notDone)),
@@ -254,6 +255,13 @@ function taskRow(lab: Lab, entry: TaskEntry): HTMLElement {
       const tx = await send(lab.connection, payer, [twoOutcomeRefundIx(escrow, decoded, lab.addresses)]);
       logLink("refund(): деньги донору без всякой подписи (только после дедлайна)", "tx", explorerTx(tx), "ok");
       await refreshBalances(lab);
+    }),
+    // The censorship path: the platform operator forces the cancel verdict.
+    // Select the operator's imported key in «голосует» first — the canister
+    // verifies the signature against its configured operator wallet.
+    button("operator-refund", async () => {
+      const operator = selectedSigner(lab, voter);
+      await call("operator_refund", operator.address);
     }),
     button("×", () => {
       update((store) => {

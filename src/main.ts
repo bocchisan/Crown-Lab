@@ -6,6 +6,7 @@
 import "./polyfill.ts";
 
 import { type Lab, buildLab } from "./lab.ts";
+import { auctionPanel } from "./panels/auction.ts";
 import { corePanel } from "./panels/core.ts";
 import { fundingPanel } from "./panels/funding.ts";
 import { participantsPanel, refreshBalances } from "./panels/participants.ts";
@@ -28,6 +29,7 @@ async function main(): Promise<void> {
       corePanel(lab),
       tasksPanel(lab),
       fundingPanel(lab),
+      auctionPanel(lab),
       subscriptionPanel(lab),
       section("Журнал", logBox),
     );

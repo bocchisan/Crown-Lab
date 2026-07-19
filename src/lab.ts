@@ -9,11 +9,13 @@ import { Principal } from "@dfinity/principal";
 import chainConfig from "virtual:crown-config";
 
 import {
+  type AuctionActor,
   type CrownIndexActor,
   type FundingActor,
   type SubscriptionActor,
   type TasksActor,
   agentFor,
+  auctionActor,
   crownIndexActor,
   fundingActor,
   subscriptionActor,
@@ -22,7 +24,12 @@ import {
 import type { ChainAddresses } from "./ix.ts";
 import { type Signer, burnerSigner, loadBurners } from "./signer.ts";
 
-export type CanisterName = "crownIndex" | "conditionalTasks" | "conditionalFunding" | "subscription";
+export type CanisterName =
+  | "crownIndex"
+  | "conditionalTasks"
+  | "conditionalFunding"
+  | "auction"
+  | "subscription";
 
 const OVERRIDE_KEY = "crown-lab:canisters";
 
@@ -36,6 +43,7 @@ export function canisterIds(): Record<CanisterName, string> {
     crownIndex: stored.crownIndex || baked.crownIndex,
     conditionalTasks: stored.conditionalTasks || baked.conditionalTasks,
     conditionalFunding: stored.conditionalFunding || baked.conditionalFunding,
+    auction: stored.auction || baked.auction,
     subscription: stored.subscription || baked.subscription,
   };
 }
@@ -61,6 +69,7 @@ export interface Lab {
   index: CrownIndexActor | null;
   tasks: TasksActor | null;
   funding: FundingActor | null;
+  auction: AuctionActor | null;
   subscription: SubscriptionActor | null;
   /** Raw principal bytes, as the signed messages frame them. */
   principalBytes(name: CanisterName): Uint8Array;
@@ -95,6 +104,7 @@ export async function buildLab(refresh: () => void): Promise<Lab> {
     index: ids.crownIndex ? crownIndexActor(agent, ids.crownIndex) : null,
     tasks: ids.conditionalTasks ? tasksActor(agent, ids.conditionalTasks) : null,
     funding: ids.conditionalFunding ? fundingActor(agent, ids.conditionalFunding) : null,
+    auction: ids.auction ? auctionActor(agent, ids.auction) : null,
     subscription: ids.subscription ? subscriptionActor(agent, ids.subscription) : null,
     principalBytes: (name) => {
       const id = ids[name];

@@ -15,6 +15,7 @@ declare module "virtual:crown-config" {
     crownIndex: string;
     conditionalTasks: string;
     conditionalFunding: string;
+    auction: string;
     subscription: string;
   };
   export default config;

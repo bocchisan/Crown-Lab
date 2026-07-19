@@ -1,9 +1,9 @@
-// Candid surfaces of the four canisters the lab talks to. The IDLs mirror the
-// .did files of crown-index and the three games; nothing here is invented.
+// Candid surfaces of the five canisters the lab talks to. The IDLs mirror the
+// .did files of crown-index and the four games; nothing here is invented.
 //
-// Two of the games answer `get_task`/`get_collection` with the exact stored
-// candid bytes plus a certificate — so the record type is declared once and
-// used both as the query's return type and as the decoder of those bytes.
+// The games answer `get_task`/`get_collection`/`get_auction` with the exact
+// stored candid bytes plus a certificate — so the record type is declared once
+// and used both as the query's return type and as the decoder of those bytes.
 
 import { Actor, type ActorSubclass, type Agent, HttpAgent } from "@dfinity/agent";
 import { IDL } from "@dfinity/candid";
@@ -37,6 +37,9 @@ export async function agentFor(host: string): Promise<Agent> {
 
 const crownIndexIdl: IDL.InterfaceFactory = () =>
   IDL.Service({
+    // The one non-query method of the core: an empty, permissionless alarm
+    // clock that can only pull the next chain read closer (core-spec §5).
+    ingest_hint: IDL.Func([], [], []),
     get_reputation: IDL.Func([IDL.Text, Blob, Blob], [IDL.Nat], ["query"]),
     get_cursor: IDL.Func([IDL.Text], [IDL.Opt(IDL.Text)], ["query"]),
     get_reduce_version: IDL.Func([], [IDL.Nat32], ["query"]),
@@ -44,8 +47,10 @@ const crownIndexIdl: IDL.InterfaceFactory = () =>
   });
 
 export interface CrownIndexActor {
-  /** book[(chain, payer, streamer)] — minor units of USDC that reached the streamer. */
-  get_reputation(chain: string, payer: Uint8Array, streamer: Uint8Array): Promise<bigint>;
+  /** Ring the alarm clock: the book reads the chain sooner, nothing else. */
+  ingest_hint(): Promise<void>;
+  /** book[(chain, donor, recipient)] — minor units of USDC that reached the recipient. */
+  get_reputation(chain: string, donor: Uint8Array, recipient: Uint8Array): Promise<bigint>;
   get_cursor(chain: string): Promise<Opt<string>>;
   get_reduce_version(): Promise<number>;
   /** Transactions the cross-check refused. Anything but 0 is a bug worth reading. */
@@ -72,7 +77,7 @@ const TaskRecord = IDL.Record({
   chain: IDL.Text,
   task_id: Blob,
   donor: Blob,
-  streamer: Blob,
+  recipient: Blob,
   gross: IDL.Nat64,
   deadline: IDL.Nat64,
   resolver: Blob,
@@ -84,9 +89,10 @@ const TaskRecord = IDL.Record({
   state: TaskState,
   votes: IDL.Vec(TaskVote),
   verdict_signature: IDL.Opt(Blob),
+  operator_refunded_at: IDL.Opt(IDL.Nat64),
 });
 const CertifiedTask = IDL.Record({ data: Blob, certificate: IDL.Opt(Blob), witness: Blob });
-const Channel = IDL.Record({
+const Profile = IDL.Record({
   min_gross: IDL.Nat64,
   min_reputation: IDL.Nat,
   enabled: IDL.Bool,
@@ -101,7 +107,7 @@ const tasksIdl: IDL.InterfaceFactory = () =>
         IDL.Record({
           chain: IDL.Text,
           donor: Blob,
-          streamer: Blob,
+          recipient: Blob,
           gross: IDL.Nat64,
           deadline: IDL.Nat64,
           resolver: Blob,
@@ -116,17 +122,22 @@ const tasksIdl: IDL.InterfaceFactory = () =>
     ),
     accept: IDL.Func([IDL.Record({ chain: IDL.Text, task_id: Blob, signature: Blob })], [unitResult], []),
     decline: IDL.Func([IDL.Record({ chain: IDL.Text, task_id: Blob, signature: Blob })], [unitResult], []),
-    done: IDL.Func([IDL.Record({ chain: IDL.Text, task_id: Blob, signature: Blob })], [unitResult], []),
+    ready: IDL.Func([IDL.Record({ chain: IDL.Text, task_id: Blob, signature: Blob })], [unitResult], []),
+    operator_refund: IDL.Func(
+      [IDL.Record({ chain: IDL.Text, task_id: Blob, signature: Blob })],
+      [unitResult],
+      [],
+    ),
     vote: IDL.Func(
       [IDL.Record({ chain: IDL.Text, task_id: Blob, voter: Blob, choice: TaskChoice, signature: Blob })],
       [unitResult],
       [],
     ),
-    set_channel_params: IDL.Func(
+    set_profile: IDL.Func(
       [
         IDL.Record({
           chain: IDL.Text,
-          streamer: Blob,
+          recipient: Blob,
           min_gross: IDL.Nat64,
           min_reputation: IDL.Nat,
           enabled: IDL.Bool,
@@ -139,7 +150,7 @@ const tasksIdl: IDL.InterfaceFactory = () =>
     ),
     get_task: IDL.Func([IDL.Text, Blob], [IDL.Opt(CertifiedTask)], ["query"]),
     list_tasks: IDL.Func([IDL.Text, Blob], [IDL.Vec(Blob)], ["query"]),
-    get_channel: IDL.Func([IDL.Text, Blob], [IDL.Opt(Channel)], ["query"]),
+    get_profile: IDL.Func([IDL.Text, Blob], [IDL.Opt(Profile)], ["query"]),
     get_resolver: IDL.Func([IDL.Text], [IDL.Opt(Blob)], ["query"]),
     get_verdict: IDL.Func([IDL.Text, Blob], [IDL.Opt(Verdict)], ["query"]),
     get_logic_version: IDL.Func([], [IDL.Nat32], ["query"]),
@@ -157,7 +168,7 @@ export interface TaskRecordView {
   chain: string;
   task_id: Uint8Array | number[];
   donor: Uint8Array | number[];
-  streamer: Uint8Array | number[];
+  recipient: Uint8Array | number[];
   gross: bigint;
   deadline: bigint;
   resolver: Uint8Array | number[];
@@ -169,13 +180,14 @@ export interface TaskRecordView {
   state: TaskStateView;
   votes: { voter: Uint8Array | number[]; choice: TaskChoiceView; weight: bigint }[];
   verdict_signature: Opt<Uint8Array | number[]>;
+  operator_refunded_at: Opt<bigint>;
 }
 
 export interface TasksActor {
   register_task(arg: {
     chain: string;
     donor: Uint8Array;
-    streamer: Uint8Array;
+    recipient: Uint8Array;
     gross: bigint;
     deadline: bigint;
     resolver: Uint8Array;
@@ -186,7 +198,12 @@ export interface TasksActor {
   }): Promise<CandidResult<Uint8Array | number[]>>;
   accept(arg: { chain: string; task_id: Uint8Array; signature: Uint8Array }): Promise<CandidResult<null>>;
   decline(arg: { chain: string; task_id: Uint8Array; signature: Uint8Array }): Promise<CandidResult<null>>;
-  done(arg: { chain: string; task_id: Uint8Array; signature: Uint8Array }): Promise<CandidResult<null>>;
+  ready(arg: { chain: string; task_id: Uint8Array; signature: Uint8Array }): Promise<CandidResult<null>>;
+  operator_refund(arg: {
+    chain: string;
+    task_id: Uint8Array;
+    signature: Uint8Array;
+  }): Promise<CandidResult<null>>;
   vote(arg: {
     chain: string;
     task_id: Uint8Array;
@@ -194,9 +211,9 @@ export interface TasksActor {
     choice: TaskChoiceView;
     signature: Uint8Array;
   }): Promise<CandidResult<null>>;
-  set_channel_params(arg: {
+  set_profile(arg: {
     chain: string;
-    streamer: Uint8Array;
+    recipient: Uint8Array;
     min_gross: bigint;
     min_reputation: bigint;
     enabled: boolean;
@@ -207,10 +224,10 @@ export interface TasksActor {
     chain: string,
     taskId: Uint8Array,
   ): Promise<Opt<{ data: Uint8Array | number[]; certificate: Opt<Uint8Array | number[]>; witness: Uint8Array | number[] }>>;
-  list_tasks(chain: string, streamer: Uint8Array): Promise<(Uint8Array | number[])[]>;
-  get_channel(
+  list_tasks(chain: string, recipient: Uint8Array): Promise<(Uint8Array | number[])[]>;
+  get_profile(
     chain: string,
-    streamer: Uint8Array,
+    recipient: Uint8Array,
   ): Promise<Opt<{ min_gross: bigint; min_reputation: bigint; enabled: boolean; counter: bigint }>>;
   get_resolver(chain: string): Promise<Opt<Uint8Array | number[]>>;
   get_verdict(
@@ -237,13 +254,13 @@ const FundingState = IDL.Variant({
   voting: IDL.Record({ started_at: IDL.Nat64 }),
   decided: IDL.Record({ outcome: FundingOutcome }),
 });
-const FundingChoice = IDL.Variant({ released: IDL.Null, not_released: IDL.Null });
+const FundingChoice = IDL.Variant({ done: IDL.Null, not_done: IDL.Null });
 const FundingVote = IDL.Record({ voter: Blob, choice: FundingChoice, weight: IDL.Nat });
 const CollectionRecord = IDL.Record({
   chain: IDL.Text,
   collection_id: Blob,
-  km: Blob,
-  km_nonce: IDL.Nat64,
+  recipient: Blob,
+  recipient_nonce: IDL.Nat64,
   goal: IDL.Nat64,
   resolver: Blob,
   created_at: IDL.Nat64,
@@ -253,6 +270,7 @@ const CollectionRecord = IDL.Record({
   quorum_weight: IDL.Nat,
   state: FundingState,
   votes: IDL.Vec(FundingVote),
+  operator_refunded_at: IDL.Opt(IDL.Nat64),
 });
 const CertifiedCollection = IDL.Record({ data: Blob, certificate: IDL.Opt(Blob), witness: Blob });
 const SignedVerdict = IDL.Record({ escrow: Blob, outcome: FundingOutcome, signature: Blob });
@@ -263,8 +281,8 @@ const fundingIdl: IDL.InterfaceFactory = () =>
       [
         IDL.Record({
           chain: IDL.Text,
-          km: Blob,
-          km_nonce: IDL.Nat64,
+          recipient: Blob,
+          recipient_nonce: IDL.Nat64,
           goal: IDL.Nat64,
           duration: IDL.Nat64,
           signature: Blob,
@@ -273,7 +291,17 @@ const fundingIdl: IDL.InterfaceFactory = () =>
       [result(Blob)],
       [],
     ),
-    released: IDL.Func([IDL.Record({ chain: IDL.Text, collection_id: Blob, signature: Blob })], [unitResult], []),
+    ready: IDL.Func([IDL.Record({ chain: IDL.Text, collection_id: Blob, signature: Blob })], [unitResult], []),
+    recipient_cancel: IDL.Func(
+      [IDL.Record({ chain: IDL.Text, collection_id: Blob, signature: Blob })],
+      [unitResult],
+      [],
+    ),
+    operator_refund: IDL.Func(
+      [IDL.Record({ chain: IDL.Text, collection_id: Blob, signature: Blob })],
+      [unitResult],
+      [],
+    ),
     vote: IDL.Func(
       [IDL.Record({ chain: IDL.Text, collection_id: Blob, voter: Blob, choice: FundingChoice, signature: Blob })],
       [unitResult],
@@ -300,7 +328,7 @@ const fundingIdl: IDL.InterfaceFactory = () =>
   });
 
 export type FundingOutcomeView = { settle: null } | { refund: null };
-export type FundingChoiceView = { released: null } | { not_released: null };
+export type FundingChoiceView = { done: null } | { not_done: null };
 export type FundingStateView =
   | { funding: null }
   | { voting: { started_at: bigint } }
@@ -309,8 +337,8 @@ export type FundingStateView =
 export interface CollectionRecordView {
   chain: string;
   collection_id: Uint8Array | number[];
-  km: Uint8Array | number[];
-  km_nonce: bigint;
+  recipient: Uint8Array | number[];
+  recipient_nonce: bigint;
   goal: bigint;
   resolver: Uint8Array | number[];
   created_at: bigint;
@@ -320,18 +348,29 @@ export interface CollectionRecordView {
   quorum_weight: bigint;
   state: FundingStateView;
   votes: { voter: Uint8Array | number[]; choice: FundingChoiceView; weight: bigint }[];
+  operator_refunded_at: Opt<bigint>;
 }
 
 export interface FundingActor {
   create_collection(arg: {
     chain: string;
-    km: Uint8Array;
-    km_nonce: bigint;
+    recipient: Uint8Array;
+    recipient_nonce: bigint;
     goal: bigint;
     duration: bigint;
     signature: Uint8Array;
   }): Promise<CandidResult<Uint8Array | number[]>>;
-  released(arg: { chain: string; collection_id: Uint8Array; signature: Uint8Array }): Promise<CandidResult<null>>;
+  ready(arg: { chain: string; collection_id: Uint8Array; signature: Uint8Array }): Promise<CandidResult<null>>;
+  recipient_cancel(arg: {
+    chain: string;
+    collection_id: Uint8Array;
+    signature: Uint8Array;
+  }): Promise<CandidResult<null>>;
+  operator_refund(arg: {
+    chain: string;
+    collection_id: Uint8Array;
+    signature: Uint8Array;
+  }): Promise<CandidResult<null>>;
   vote(arg: {
     chain: string;
     collection_id: Uint8Array;
@@ -358,7 +397,7 @@ export interface FundingActor {
     collectionId: Uint8Array,
   ): Promise<Opt<{ data: Uint8Array | number[]; certificate: Opt<Uint8Array | number[]>; witness: Uint8Array | number[] }>>;
   get_resolver(chain: string, collectionId: Uint8Array): Promise<Opt<Uint8Array | number[]>>;
-  list_collections(chain: string, km: Uint8Array): Promise<(Uint8Array | number[])[]>;
+  list_collections(chain: string, recipient: Uint8Array): Promise<(Uint8Array | number[])[]>;
   get_logic_version(): Promise<number>;
 }
 
@@ -368,6 +407,266 @@ export function fundingActor(agent: Agent, canisterId: string): FundingActor {
 
 export function decodeCollectionRecord(data: Uint8Array): CollectionRecordView {
   return IDL.decode([CollectionRecord], data)[0] as unknown as CollectionRecordView;
+}
+
+// ---- auction --------------------------------------------------------------
+
+const AuctionOutcome = IDL.Variant({ settle: IDL.Null, cancel: IDL.Null });
+const AuctionState = IDL.Variant({
+  bidding: IDL.Null,
+  finale_due: IDL.Null,
+  performing: IDL.Null,
+  voting: IDL.Record({ started_at: IDL.Nat64 }),
+  done: IDL.Record({ winner: IDL.Opt(AuctionOutcome) }),
+});
+const AuctionChoice = IDL.Variant({ done: IDL.Null, not_done: IDL.Null });
+const AuctionVote = IDL.Record({ voter: Blob, choice: AuctionChoice, weight: IDL.Nat });
+const ReturnActor = IDL.Variant({ recipient: IDL.Null, operator: IDL.Null });
+const ReturnStamp = IDL.Record({ at: IDL.Nat64, by: ReturnActor });
+/** The stored record: `data` of get_auction is exactly its candid bytes. */
+const AuctionRecord = IDL.Record({
+  chain: IDL.Text,
+  auction_id: Blob,
+  recipient: Blob,
+  recipient_nonce: IDL.Nat64,
+  created_at: IDL.Nat64,
+  duration: IDL.Nat64,
+  perform_window: IDL.Nat64,
+  voting_period: IDL.Nat64,
+  min_entry: IDL.Nat64,
+  state: AuctionState,
+  votes: IDL.Vec(AuctionVote),
+  winner_lot: IDL.Opt(Blob),
+  operator_returned_at: IDL.Opt(IDL.Nat64),
+});
+const LotRecord = IDL.Record({
+  lot_id: Blob,
+  text_hash: Blob,
+  resolver: Blob,
+  accepted_at: IDL.Opt(IDL.Nat64),
+  returned: IDL.Opt(ReturnStamp),
+  sum: IDL.Nat,
+  entries: IDL.Nat64,
+});
+const EntryRecord = IDL.Record({
+  escrow: Blob,
+  lot_id: Blob,
+  donor: Blob,
+  gross: IDL.Nat64,
+  deadline: IDL.Nat64,
+  nonce: IDL.Nat64,
+  seq: IDL.Nat64,
+  returned: IDL.Opt(ReturnStamp),
+});
+const CertifiedAuction = IDL.Record({ data: Blob, certificate: IDL.Opt(Blob), witness: Blob });
+const AuctionSignedVerdict = IDL.Record({ escrow: Blob, outcome: AuctionOutcome, signature: Blob });
+const LotActionArg = IDL.Record({ chain: IDL.Text, auction_id: Blob, lot_id: Blob, signature: Blob });
+const EntryActionArg = IDL.Record({ chain: IDL.Text, auction_id: Blob, escrow: Blob, signature: Blob });
+const AuctionActionArg = IDL.Record({ chain: IDL.Text, auction_id: Blob, signature: Blob });
+
+const auctionIdl: IDL.InterfaceFactory = () =>
+  IDL.Service({
+    create_auction: IDL.Func(
+      [
+        IDL.Record({
+          chain: IDL.Text,
+          recipient: Blob,
+          recipient_nonce: IDL.Nat64,
+          duration: IDL.Nat64,
+          perform_window: IDL.Nat64,
+          min_entry: IDL.Nat64,
+          signature: Blob,
+        }),
+      ],
+      [result(Blob)],
+      [],
+    ),
+    // An update, not a query: the lot's resolver is a threshold key derived
+    // on demand at path [lot_id].
+    get_resolver: IDL.Func([IDL.Record({ auction_id: Blob, text_hash: Blob })], [result(Blob)], []),
+    register_entry: IDL.Func(
+      [
+        IDL.Record({
+          chain: IDL.Text,
+          auction_id: Blob,
+          text_hash: Blob,
+          donor: Blob,
+          gross: IDL.Nat64,
+          deadline: IDL.Nat64,
+          nonce: IDL.Nat64,
+        }),
+      ],
+      [result(Blob)],
+      [],
+    ),
+    accept_lot: IDL.Func([LotActionArg], [unitResult], []),
+    return_lot: IDL.Func([LotActionArg], [unitResult], []),
+    return_entry: IDL.Func([EntryActionArg], [unitResult], []),
+    cancel_auction: IDL.Func([AuctionActionArg], [unitResult], []),
+    ready: IDL.Func([AuctionActionArg], [unitResult], []),
+    vote: IDL.Func(
+      [IDL.Record({ chain: IDL.Text, auction_id: Blob, voter: Blob, choice: AuctionChoice, signature: Blob })],
+      [unitResult],
+      [],
+    ),
+    operator_refund_lot: IDL.Func([LotActionArg], [unitResult], []),
+    operator_refund_entry: IDL.Func([EntryActionArg], [unitResult], []),
+    operator_cancel_auction: IDL.Func([AuctionActionArg], [unitResult], []),
+    request_signature: IDL.Func(
+      [
+        IDL.Record({
+          chain: IDL.Text,
+          auction_id: Blob,
+          text_hash: Blob,
+          donor: Blob,
+          gross: IDL.Nat64,
+          deadline: IDL.Nat64,
+          nonce: IDL.Nat64,
+        }),
+      ],
+      [result(AuctionSignedVerdict)],
+      [],
+    ),
+    get_auction: IDL.Func([IDL.Text, Blob], [IDL.Opt(CertifiedAuction)], ["query"]),
+    list_lots: IDL.Func([IDL.Text, Blob], [IDL.Vec(LotRecord)], ["query"]),
+    list_entries: IDL.Func([IDL.Text, Blob, Blob], [IDL.Vec(EntryRecord)], ["query"]),
+    get_logic_version: IDL.Func([], [IDL.Nat32], ["query"]),
+  });
+
+export type AuctionOutcomeView = { settle: null } | { cancel: null };
+export type AuctionChoiceView = { done: null } | { not_done: null };
+export type ReturnStampView = { at: bigint; by: { recipient: null } | { operator: null } };
+export type AuctionStateView =
+  | { bidding: null }
+  | { finale_due: null }
+  | { performing: null }
+  | { voting: { started_at: bigint } }
+  | { done: { winner: Opt<AuctionOutcomeView> } };
+
+export interface AuctionRecordView {
+  chain: string;
+  auction_id: Uint8Array | number[];
+  recipient: Uint8Array | number[];
+  recipient_nonce: bigint;
+  created_at: bigint;
+  duration: bigint;
+  perform_window: bigint;
+  voting_period: bigint;
+  min_entry: bigint;
+  state: AuctionStateView;
+  votes: { voter: Uint8Array | number[]; choice: AuctionChoiceView; weight: bigint }[];
+  winner_lot: Opt<Uint8Array | number[]>;
+  operator_returned_at: Opt<bigint>;
+}
+
+export interface LotView {
+  lot_id: Uint8Array | number[];
+  text_hash: Uint8Array | number[];
+  resolver: Uint8Array | number[];
+  accepted_at: Opt<bigint>;
+  returned: Opt<ReturnStampView>;
+  sum: bigint;
+  entries: bigint;
+}
+
+export interface EntryView {
+  escrow: Uint8Array | number[];
+  lot_id: Uint8Array | number[];
+  donor: Uint8Array | number[];
+  gross: bigint;
+  deadline: bigint;
+  nonce: bigint;
+  seq: bigint;
+  returned: Opt<ReturnStampView>;
+}
+
+interface LotActionArgView {
+  chain: string;
+  auction_id: Uint8Array;
+  lot_id: Uint8Array;
+  signature: Uint8Array;
+}
+interface EntryActionArgView {
+  chain: string;
+  auction_id: Uint8Array;
+  escrow: Uint8Array;
+  signature: Uint8Array;
+}
+interface AuctionActionArgView {
+  chain: string;
+  auction_id: Uint8Array;
+  signature: Uint8Array;
+}
+
+export interface AuctionActor {
+  create_auction(arg: {
+    chain: string;
+    recipient: Uint8Array;
+    recipient_nonce: bigint;
+    duration: bigint;
+    perform_window: bigint;
+    min_entry: bigint;
+    signature: Uint8Array;
+  }): Promise<CandidResult<Uint8Array | number[]>>;
+  get_resolver(arg: {
+    auction_id: Uint8Array;
+    text_hash: Uint8Array;
+  }): Promise<CandidResult<Uint8Array | number[]>>;
+  register_entry(arg: {
+    chain: string;
+    auction_id: Uint8Array;
+    text_hash: Uint8Array;
+    donor: Uint8Array;
+    gross: bigint;
+    deadline: bigint;
+    nonce: bigint;
+  }): Promise<CandidResult<Uint8Array | number[]>>;
+  accept_lot(arg: LotActionArgView): Promise<CandidResult<null>>;
+  return_lot(arg: LotActionArgView): Promise<CandidResult<null>>;
+  return_entry(arg: EntryActionArgView): Promise<CandidResult<null>>;
+  cancel_auction(arg: AuctionActionArgView): Promise<CandidResult<null>>;
+  ready(arg: AuctionActionArgView): Promise<CandidResult<null>>;
+  vote(arg: {
+    chain: string;
+    auction_id: Uint8Array;
+    voter: Uint8Array;
+    choice: AuctionChoiceView;
+    signature: Uint8Array;
+  }): Promise<CandidResult<null>>;
+  operator_refund_lot(arg: LotActionArgView): Promise<CandidResult<null>>;
+  operator_refund_entry(arg: EntryActionArgView): Promise<CandidResult<null>>;
+  operator_cancel_auction(arg: AuctionActionArgView): Promise<CandidResult<null>>;
+  request_signature(arg: {
+    chain: string;
+    auction_id: Uint8Array;
+    text_hash: Uint8Array;
+    donor: Uint8Array;
+    gross: bigint;
+    deadline: bigint;
+    nonce: bigint;
+  }): Promise<
+    CandidResult<{
+      escrow: Uint8Array | number[];
+      outcome: AuctionOutcomeView;
+      signature: Uint8Array | number[];
+    }>
+  >;
+  get_auction(
+    chain: string,
+    auctionId: Uint8Array,
+  ): Promise<Opt<{ data: Uint8Array | number[]; certificate: Opt<Uint8Array | number[]>; witness: Uint8Array | number[] }>>;
+  list_lots(chain: string, auctionId: Uint8Array): Promise<LotView[]>;
+  list_entries(chain: string, auctionId: Uint8Array, lotId: Uint8Array): Promise<EntryView[]>;
+  get_logic_version(): Promise<number>;
+}
+
+export function auctionActor(agent: Agent, canisterId: string): AuctionActor {
+  return Actor.createActor(auctionIdl, { agent, canisterId }) as ActorSubclass<AuctionActor>;
+}
+
+/** Decodes the certified bytes of get_auction into the record they encode. */
+export function decodeAuctionRecord(data: Uint8Array): AuctionRecordView {
+  return IDL.decode([AuctionRecord], data)[0] as unknown as AuctionRecordView;
 }
 
 // ---- subscription ---------------------------------------------------------

@@ -39,7 +39,7 @@ page.on("requestfailed", (request) => {
 if (seed) {
   const burners = [
     burner(`${homedir()}/.cache/crown-e2e/donor.json`, "донор"),
-    burner(`${homedir()}/.cache/crown-e2e/streamer.json`, "стример"),
+    burner(`${homedir()}/.cache/crown-e2e/streamer.json`, "получатель"),
   ];
   await page.addInitScript(
     ([key, value]) => localStorage.setItem(key as string, value as string),
@@ -63,9 +63,9 @@ console.log(`кнопок на странице: ${buttons}`);
 
 let seeded = true;
 if (seed) {
-  // Reputation is local to a streamer, so point the book column at one.
-  // The second participant is the streamer the e2e keys donate to.
-  await page.locator('label:has-text("книга стримера") select').selectOption({ index: 1 });
+  // Reputation is local to a recipient, so point the book column at one.
+  // The second participant is the recipient the e2e keys donate to.
+  await page.locator('label:has-text("книга получателя") select').selectOption({ index: 1 });
   await page.waitForTimeout(6000);
   const rows = await page.locator("tbody tr").allTextContents();
   console.log("\nтаблица участников:");

@@ -18,10 +18,10 @@ import { button, el, field, labeled, link, log, logLink, row, section, short, sp
 
 /** Balances are read once per render and cached here, so tables paint fast. */
 const cache = new Map<string, Balances>();
-/** book[(chain, participant, bookStreamer)], filled by the same refresh. */
+/** book[(chain, participant, bookRecipient)], filled by the same refresh. */
 const reputation = new Map<string, bigint>();
-/** Whose book we are looking at: reputation is always local to a streamer. */
-let bookStreamer: string | null = null;
+/** Whose book we are looking at: reputation is always local to a recipient. */
+let bookRecipient: string | null = null;
 
 /** A dropdown of participants; without an explicit pick it starts on the active one. */
 export function participantSelect(lab: Lab, selected?: string): HTMLSelectElement {
@@ -45,18 +45,18 @@ export function selectedSigner(lab: Lab, select: HTMLSelectElement): Signer {
 
 export async function refreshBalances(lab: Lab): Promise<void> {
   const participants = allParticipants(lab);
-  bookStreamer ??= participants[0]?.address ?? null;
-  const streamer = participants.find((signer) => signer.address === bookStreamer);
+  bookRecipient ??= participants[0]?.address ?? null;
+  const recipient = participants.find((signer) => signer.address === bookRecipient);
 
   for (const signer of participants) {
     cache.set(
       signer.address,
       await balancesOf(lab.connection, new PublicKey(signer.publicKey), lab.addresses.usdc),
     );
-    if (lab.index && streamer) {
+    if (lab.index && recipient) {
       reputation.set(
         signer.address,
-        await lab.index.get_reputation(lab.chainId, signer.publicKey, streamer.publicKey),
+        await lab.index.get_reputation(lab.chainId, signer.publicKey, recipient.publicKey),
       );
     }
   }
@@ -64,14 +64,14 @@ export async function refreshBalances(lab: Lab): Promise<void> {
 }
 
 export function participantsPanel(lab: Lab): HTMLElement {
-  // Reputation is per (payer, streamer): the column is meaningless without
+  // Reputation is per (donor, recipient): the column is meaningless without
   // naming whose book we read, so the header carries the choice.
-  const streamerPick = participantSelect(lab, bookStreamer ?? undefined);
-  streamerPick.addEventListener("change", () => {
-    bookStreamer = streamerPick.value;
+  const recipientPick = participantSelect(lab, bookRecipient ?? undefined);
+  recipientPick.addEventListener("change", () => {
+    bookRecipient = recipientPick.value;
     void refreshBalances(lab);
   });
-  const streamerLabel = allParticipants(lab).find((signer) => signer.address === bookStreamer);
+  const recipientLabel = allParticipants(lab).find((signer) => signer.address === bookRecipient);
 
   const active = activeParticipant(lab);
 
@@ -84,7 +84,7 @@ export function participantsPanel(lab: Lab): HTMLElement {
         el("th", { textContent: "адрес" }),
         el("th", { textContent: "SOL" }),
         el("th", { textContent: "USDC" }),
-        el("th", { textContent: `репутация → ${streamerLabel ? streamerLabel.label : "?"}` }),
+        el("th", { textContent: `репутация → ${recipientLabel ? recipientLabel.label : "?"}` }),
         el("th", { textContent: "" }),
       ]),
     ]),
@@ -242,7 +242,7 @@ export function participantsPanel(lab: Lab): HTMLElement {
     table,
     row(
       button("обновить балансы и репутацию", () => refreshBalances(lab)),
-      labeled("книга стримера", streamerPick),
+      labeled("книга получателя", recipientPick),
       span("репутация всегда локальна стримеру: у одного кошелька их столько, скольким он донатил", "muted"),
     ),
     walletRow,

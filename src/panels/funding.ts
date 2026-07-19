@@ -28,20 +28,20 @@ import { participantSelect, refreshBalances, selectedSigner } from "./participan
 const DEADLINE_MARGIN = 259_200n;
 
 export function fundingPanel(lab: Lab): HTMLElement {
-  const km = participantSelect(lab);
+  const recipient = participantSelect(lab);
   const goal = field("goal", "1", 6);
   const duration = field("duration", "600", 6);
 
   const createRow = row(
-    labeled("КМ", km),
+    labeled("получатель", recipient),
     labeled("цель, USDC", goal),
     labeled("duration, с", duration),
     button("1. создать коллекцию", async () => {
       if (!lab.funding) throw new Error("canister id игры «сбор» не задан");
-      const manager = selectedSigner(lab, km);
-      const kmNonce = BigInt(Math.floor(Date.now() / 1000));
+      const manager = selectedSigner(lab, recipient);
+      const recipientNonce = BigInt(Math.floor(Date.now() / 1000));
       const canisterId = lab.principalBytes("conditionalFunding");
-      const id = collectionId(canisterId, manager.publicKey, kmNonce);
+      const id = collectionId(canisterId, manager.publicKey, recipientNonce);
       const goalUnits = BigInt(Math.round(Number(goal.value) * 1e6));
       const message = collectionMessage(lab.chainId, lab.ids.conditionalFunding, id, {
         kind: "create",
@@ -51,8 +51,8 @@ export function fundingPanel(lab: Lab): HTMLElement {
       const signature = await manager.signMessage(message);
       const out = await lab.funding.create_collection({
         chain: lab.chainId,
-        km: manager.publicKey,
-        km_nonce: kmNonce,
+        recipient: manager.publicKey,
+        recipient_nonce: recipientNonce,
         goal: goalUnits,
         duration: BigInt(duration.value),
         signature,
@@ -66,8 +66,8 @@ export function fundingPanel(lab: Lab): HTMLElement {
       if (!resolver) throw new Error("резолвер коллекции ещё не готов");
       const entry: CollectionEntry = {
         collectionId: hex(id),
-        km: manager.address,
-        kmNonce: kmNonce.toString(),
+        recipient: manager.address,
+        recipientNonce: recipientNonce.toString(),
         goal: goalUnits.toString(),
         duration: duration.value,
         resolver: hex(asBytes(resolver)),
@@ -85,9 +85,9 @@ export function fundingPanel(lab: Lab): HTMLElement {
   return section(
     "Игра «Сбор» — two-outcome, общий вердикт коллекции",
     el("div", { className: "muted" }, [
-      "КМ открывает сбор, вкладчики вешают по эскроу на общий резолвер коллекции. " +
-        "КМ жмёт «released», держатели репутации голосуют, и один вердикт решает судьбу всех вкладов: " +
-        "settle → КМ (за вычетом комиссии), refund → каждому его вклад целиком. " +
+      "Получатель открывает сбор, вкладчики вешают по эскроу на общий резолвер коллекции. " +
+        "Получатель жмёт «ready», держатели репутации голосуют, и один вердикт решает судьбу всех вкладов: " +
+        "settle → получателю (за вычетом комиссии), refund → каждому его вклад целиком. " +
         "Кворум testnet — 150000 веса, порог — строгое большинство.",
     ]),
     createRow,
@@ -121,6 +121,21 @@ function collectionRow(lab: Lab, entry: CollectionEntry): HTMLElement {
     log(state.textContent, "muted");
   };
 
+  // ready / cancel are the recipient's word; operator-refund is verified
+  // against the platform operator's wallet (select its imported key first).
+  const say = async (kind: "ready" | "cancel" | "operator-refund", signerAddress: string): Promise<void> => {
+    if (!lab.funding) throw new Error("canister id игры не задан");
+    const signer = participantByAddress(lab, signerAddress);
+    const message = collectionMessage(lab.chainId, lab.ids.conditionalFunding, id, { kind });
+    const signature = await signer.signMessage(message);
+    const method =
+      kind === "ready" ? "ready" : kind === "cancel" ? "recipient_cancel" : "operator_refund";
+    const out = await lab.funding[method]({ chain: lab.chainId, collection_id: id, signature });
+    if ("Err" in out) throw new Error(`${method}: ${out.Err}`);
+    log(`${method}: ok (подписал ${signer.label})`, "ok");
+    await showState();
+  };
+
   const claimOne = async (contribution: CollectionEntry["contributions"][number], outcome: number): Promise<void> => {
     if (!lab.funding) throw new Error("canister id игры не задан");
     // Read the escrow first: a settled one is terminal, and asking the
@@ -131,7 +146,7 @@ function collectionRow(lab: Lab, entry: CollectionEntry): HTMLElement {
     const decoded = decodeTwoOutcome(new Uint8Array(account.data));
     refuseIfSettled(decoded, "claim");
 
-    // The signature is issued on demand: km and resolver come from the
+    // The signature is issued on demand: recipient and resolver come from the
     // canister's record, never from this request.
     const out = await lab.funding.request_signature({
       chain: lab.chainId,
@@ -164,7 +179,7 @@ function collectionRow(lab: Lab, entry: CollectionEntry): HTMLElement {
     const payer = selectedSigner(lab, voter);
     const message = twoOutcomeVerdictMessage(lab.domains.twoOutcome, lab.addresses.factoryTwoOutcome, escrow, outcome);
     const tx = await send(lab.connection, payer, [
-      createAtaIx(new PublicKey(payer.publicKey), new PublicKey(decoded.streamer), lab.addresses.usdc),
+      createAtaIx(new PublicKey(payer.publicKey), new PublicKey(decoded.recipient), lab.addresses.usdc),
       createAtaIx(new PublicKey(payer.publicKey), new PublicKey(decoded.feeWallet), lab.addresses.usdc),
       ed25519VerifyIx(asBytes(decoded.resolver), asBytes(out.Ok.signature), message),
       twoOutcomeClaimIx(escrow, decoded, outcome, lab.addresses),
@@ -172,7 +187,7 @@ function collectionRow(lab: Lab, entry: CollectionEntry): HTMLElement {
     const fee = (decoded.gross * BigInt(decoded.feeBps)) / 10_000n;
     logLink(
       outcome === 0
-        ? `claim(0): КМ получил ${formatUsdc(decoded.gross - fee)} USDC; книга начислит ВКЛАДЧИКУ`
+        ? `claim(0): получатель получил ${formatUsdc(decoded.gross - fee)} USDC; книга начислит ВКЛАДЧИКУ`
         : `claim(1): вклад ${formatUsdc(decoded.gross)} USDC вернулся вкладчику`,
       "tx",
       explorerTx(tx),
@@ -209,20 +224,20 @@ function collectionRow(lab: Lab, entry: CollectionEntry): HTMLElement {
   return el("div", {}, [
     el("div", { className: "row" }, [
       span(`коллекция ${short(entry.collectionId)}`, "pill"),
-      span(`КМ ${short(entry.km)} · цель ${formatUsdc(BigInt(entry.goal))} USDC`, "muted"),
+      span(`получатель ${short(entry.recipient)} · цель ${formatUsdc(BigInt(entry.goal))} USDC`, "muted"),
       labeled("вкладчик", contributor),
       labeled("USDC", gross),
       button("2. внести вклад", async () => {
         const donor = selectedSigner(lab, contributor);
-        const manager = participantByAddress(lab, entry.km);
+        const manager = participantByAddress(lab, entry.recipient);
         const now = BigInt(Math.floor(Date.now() / 1000));
         const deadline = now + BigInt(entry.duration) + 120n + DEADLINE_MARGIN + 600n;
         const nonce = now;
         const grossUnits = BigInt(Math.round(Number(gross.value) * 1e6));
         const birth = {
           donor: donor.publicKey,
-          // In this game the escrow's streamer is the KM.
-          streamer: manager.publicKey,
+          // In this game the escrow's recipient is the collection's recipient.
+          recipient: manager.publicKey,
           gross: grossUnits,
           deadline,
           resolver: fromHex(entry.resolver),
@@ -246,22 +261,17 @@ function collectionRow(lab: Lab, entry: CollectionEntry): HTMLElement {
         await refreshBalances(lab);
         lab.refresh();
       }),
-      button("3. released", async () => {
-        if (!lab.funding) throw new Error("canister id игры не задан");
-        const manager = participantByAddress(lab, entry.km);
-        const message = collectionMessage(lab.chainId, lab.ids.conditionalFunding, id, {
-          kind: "released",
-        });
-        const signature = await manager.signMessage(message);
-        const out = await lab.funding.released({ chain: lab.chainId, collection_id: id, signature });
-        if ("Err" in out) throw new Error(`released: ${out.Err}`);
-        log("КМ объявил результат: коллекция ушла в голосование", "ok");
-        await showState();
-      }),
+      button("3. ready", () => say("ready", entry.recipient)),
+      button("отмена (получатель)", () => say("cancel", entry.recipient)),
       labeled("голосует", voter),
-      button("4. голос released", () => vote(lab, entry, voter, FUNDING_CHOICE.released)),
-      button("голос not_released", () => vote(lab, entry, voter, FUNDING_CHOICE.notReleased)),
+      button("4. голос done", () => vote(lab, entry, voter, FUNDING_CHOICE.done)),
+      button("голос not_done", () => vote(lab, entry, voter, FUNDING_CHOICE.notDone)),
       button("состояние", showState),
+      // The censorship path: select the operator's imported key in «голосует».
+      button("operator-refund", async () => {
+        const operator = selectedSigner(lab, voter);
+        await say("operator-refund", operator.address);
+      }),
       button("×", () => {
         update((store) => {
           store.collections = store.collections.filter(
@@ -294,7 +304,7 @@ async function vote(
     chain: lab.chainId,
     collection_id: id,
     voter: voter.publicKey,
-    choice: choice === FUNDING_CHOICE.released ? { released: null } : { not_released: null },
+    choice: choice === FUNDING_CHOICE.done ? { done: null } : { not_done: null },
     signature,
   });
   if ("Err" in out) throw new Error(`vote: ${out.Err}`);

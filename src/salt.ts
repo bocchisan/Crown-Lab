@@ -19,11 +19,11 @@ import { sha256 } from "@noble/hashes/sha2.js";
 
 import { assertLength, concat, i64le, u16le, u64le } from "./bytes.ts";
 
-/** Birth fields of a two-outcome escrow: Tasks and Funding both use this shape. */
+/** Birth fields of a two-outcome escrow: Tasks, Funding and Auction use this shape. */
 export interface TwoOutcomeBirth {
   donor: Uint8Array;
-  /** The single recipient of a settle. In Funding this is the KM. */
-  streamer: Uint8Array;
+  /** The single recipient of a settle. */
+  recipient: Uint8Array;
   gross: bigint;
   deadline: bigint;
   resolver: Uint8Array;
@@ -34,18 +34,18 @@ export interface TwoOutcomeBirth {
 }
 
 /**
- * salt = sha256(donor ‖ streamer ‖ gross_le ‖ deadline_le ‖ resolver ‖
+ * salt = sha256(donor ‖ recipient ‖ gross_le ‖ deadline_le ‖ resolver ‖
  * fee_bps_le ‖ fee_wallet ‖ nonce_le)
  */
 export function twoOutcomeSalt(birth: TwoOutcomeBirth): Uint8Array {
   assertLength(birth.donor, 32, "donor");
-  assertLength(birth.streamer, 32, "streamer");
+  assertLength(birth.recipient, 32, "recipient");
   assertLength(birth.resolver, 32, "resolver");
   assertLength(birth.feeWallet, 32, "feeWallet");
   return sha256(
     concat(
       birth.donor,
-      birth.streamer,
+      birth.recipient,
       u64le(birth.gross),
       i64le(birth.deadline),
       birth.resolver,

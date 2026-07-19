@@ -40,7 +40,7 @@ export interface LabContext {
   funding: FundingActor;
   subscription: SubscriptionActor;
   donor: Signer;
-  streamer: Signer;
+  recipient: Signer;
 }
 
 function profile(): Record<string, string> {
@@ -85,7 +85,8 @@ export async function context(): Promise<LabContext> {
     funding: fundingActor(agent, cfg.conditional_funding ?? ""),
     subscription: subscriptionActor(agent, cfg.subscription ?? ""),
     donor: keypairSigner(`${homedir()}/.cache/crown-e2e/donor.json`, "донор"),
-    streamer: keypairSigner(`${homedir()}/.cache/crown-e2e/streamer.json`, "стример"),
+    // The keypair file keeps its historical name; only the role is named anew.
+    recipient: keypairSigner(`${homedir()}/.cache/crown-e2e/streamer.json`, "получатель"),
   };
 }
 
