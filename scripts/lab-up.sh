@@ -31,7 +31,7 @@ cd "$(dirname "$0")/.."
 SOL_RPC_URL=${SOL_RPC_URL:-https://api.devnet.solana.com}
 CORE=${CORE:-$(cd ../Crown-Core && pwd)}
 GAMES=${GAMES:-$(cd ../crown-games && pwd)}
-AR_WASM32=${AR_WASM32:-$HOME/.cache/solana/v1.53/platform-tools/llvm/bin/llvm-ar}
+AR_WASM32=${AR_WASM32:-$(command -v llvm-ar || ls -d "$HOME"/.cache/solana/*/platform-tools/llvm/bin/llvm-ar 2>/dev/null | sort -V | tail -1 | grep . || echo "$HOME/.cache/zig/zig-ar")}
 
 value() { grep "^$1" "config/testnet.toml" | head -1 | cut -d'=' -f2- | tr -d ' "'; }
 SPLITTER=$(value splitter)
