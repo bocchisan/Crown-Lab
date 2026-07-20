@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   const created = await lab.funding.create_collection({
     chain: lab.chainId,
     recipient: recipient.publicKey,
-    km_nonce: recipientNonce,
+    recipient_nonce: recipientNonce,
     goal: GOAL,
     duration: DURATION,
     signature: await recipient.signMessage(createMessage),
