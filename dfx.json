@@ -14,26 +14,26 @@
     },
     "conditional-tasks": {
       "type": "custom",
-      "wasm": "../Crown-Games/Conditional-Tasks/target/wasm32-unknown-unknown/release/conditional_tasks.wasm",
-      "candid": "../Crown-Games/Conditional-Tasks/canister/conditional-tasks.did",
+      "wasm": "../crown-games/Conditional-Tasks/target/wasm32-unknown-unknown/release/conditional_tasks.wasm",
+      "candid": "../crown-games/Conditional-Tasks/canister/conditional-tasks.did",
       "build": []
     },
     "conditional-funding": {
       "type": "custom",
-      "wasm": "../Crown-Games/Conditional-Funding/target/wasm32-unknown-unknown/release/conditional_funding.wasm",
-      "candid": "../Crown-Games/Conditional-Funding/canister/conditional-funding.did",
+      "wasm": "../crown-games/Conditional-Funding/target/wasm32-unknown-unknown/release/conditional_funding.wasm",
+      "candid": "../crown-games/Conditional-Funding/canister/conditional-funding.did",
       "build": []
     },
     "subscription": {
       "type": "custom",
-      "wasm": "../Crown-Games/Subscription/target/wasm32-unknown-unknown/release/subscription.wasm",
-      "candid": "../Crown-Games/Subscription/canister/subscription.did",
+      "wasm": "../crown-games/Subscription/target/wasm32-unknown-unknown/release/subscription.wasm",
+      "candid": "../crown-games/Subscription/canister/subscription.did",
       "build": []
     },
     "auction": {
       "type": "custom",
-      "wasm": "../Crown-Games/Auction/target/wasm32-unknown-unknown/release/auction.wasm",
-      "candid": "../Crown-Games/Auction/canister/auction.did",
+      "wasm": "../crown-games/Auction/target/wasm32-unknown-unknown/release/auction.wasm",
+      "candid": "../crown-games/Auction/canister/auction.did",
       "build": []
     },
     "pad1": {

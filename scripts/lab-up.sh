@@ -30,7 +30,7 @@ cd "$(dirname "$0")/.."
 
 SOL_RPC_URL=${SOL_RPC_URL:-https://api.devnet.solana.com}
 CORE=${CORE:-$(cd ../Crown-Core && pwd)}
-GAMES=${GAMES:-$(cd ../Crown-Games && pwd)}
+GAMES=${GAMES:-$(cd ../crown-games && pwd)}
 AR_WASM32=${AR_WASM32:-$HOME/.cache/solana/v1.53/platform-tools/llvm/bin/llvm-ar}
 
 value() { grep "^$1" "config/testnet.toml" | head -1 | cut -d'=' -f2- | tr -d ' "'; }
