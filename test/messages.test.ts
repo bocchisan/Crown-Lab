@@ -21,7 +21,6 @@ import {
   collectionId,
   collectionMessage,
   lotId,
-  profileMessage,
   releaseMessage,
   taskMessage,
   twoOutcomeVerdictMessage,
@@ -95,21 +94,6 @@ test("vote message matches the canister's vector", () => {
   }
 });
 
-test("profile message matches the canister's vector", () => {
-  assert.equal(
-    text(profileMessage("solana-devnet", CANISTER, new Uint8Array(32).fill(0x02), 34n, 5n, true, 7n)),
-    "crown:conditional-tasks:v1\n" +
-      "action: set-profile\n" +
-      "chain: solana-devnet\n" +
-      `canister: ${CANISTER}\n` +
-      "recipient: 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR\n" +
-      "min_gross: 34\n" +
-      "min_reputation: 5\n" +
-      "enabled: true\n" +
-      "counter: 7\n",
-  );
-});
-
 test("action and choice words are pinned", () => {
   assert.deepEqual(TASK_CHOICE, { done: "done", notDone: "not_done" });
   assert.deepEqual(FUNDING_CHOICE, { done: "done", notDone: "not_done" });
@@ -139,7 +123,6 @@ test("every Tasks message a wallet must sign is UTF-8 and not a transaction", ()
       textHash: new Uint8Array(32).fill(0xff),
       duration: 18_446_744_073_709_551_615n,
     }),
-    profileMessage("solana-devnet", CANISTER, new Uint8Array(32).fill(0xff), 34n, 5n, false, 7n),
   ];
   for (const message of messages) {
     // Strict decoding throws on any byte that is not valid UTF-8.

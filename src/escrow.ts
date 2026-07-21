@@ -14,7 +14,6 @@ import { type StreamBirth, type TwoOutcomeBirth, streamSalt, twoOutcomeSalt } fr
 export const ESCROW_DISCRIMINATOR = new Uint8Array([31, 213, 123, 187, 186, 22, 218, 155]);
 
 export const DONOR_OFFSET = 8;
-export const SALT_OFFSET = 40;
 
 export function escrowAddress(salt: Uint8Array, factory: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([utf8("escrow"), salt], factory)[0];

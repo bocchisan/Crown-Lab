@@ -11,7 +11,6 @@
 import { Buffer } from "buffer/";
 
 declare global {
-  // eslint-disable-next-line no-var
   var global: typeof globalThis;
 }
 

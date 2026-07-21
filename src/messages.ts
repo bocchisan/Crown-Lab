@@ -13,6 +13,12 @@ import bs58 from "bs58";
 
 import { concat, hex, u8, u16le, u64le, utf8 } from "./bytes.ts";
 
+// Game timing defaults the panels and the smoke scripts both build deadlines
+// from, in seconds. One source so the copies cannot drift: the deadline floor
+// a wallet must clear (72h) and the devnet voting window baked into the games.
+export const DEADLINE_MARGIN = 259_200n;
+export const VOTING_PERIOD = 120n;
+
 // ---- Tasks (crown:conditional-tasks:v1) ---------------------------------
 //
 // The participant messages of this game are UTF-8 text, mirroring the
@@ -66,39 +72,6 @@ export function taskMessage(
     out += `choice: ${action.choice}\n`;
   }
   return utf8(out);
-}
-
-/**
- * crown:conditional-tasks:v1
- * action: set-profile
- * chain: solana-devnet
- * canister: vizcg-th777-77774-qaaea-cai
- * recipient: Gt381v8RqGQUX7vdRbC9NdZCzGuzk6ZUgcTDLfUnYdcJ
- * min_gross: 34
- * min_reputation: 0
- * enabled: true
- * counter: 7
- */
-export function profileMessage(
-  chain: string,
-  canisterId: string,
-  recipient: Uint8Array,
-  minGross: bigint,
-  minReputation: bigint,
-  enabled: boolean,
-  counter: bigint,
-): Uint8Array {
-  return utf8(
-    `${TASKS_DOMAIN}\n` +
-      `action: set-profile\n` +
-      `chain: ${chain}\n` +
-      `canister: ${canisterId}\n` +
-      `recipient: ${bs58.encode(recipient)}\n` +
-      `min_gross: ${minGross}\n` +
-      `min_reputation: ${minReputation}\n` +
-      `enabled: ${enabled}\n` +
-      `counter: ${counter}\n`,
-  );
 }
 
 // ---- Funding (crown:conditional-funding:v1) ------------------------------
