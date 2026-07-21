@@ -19,15 +19,13 @@ import { fromHex, hex, utf8 } from "../src/bytes.ts";
 import { asBytes, crownIndexActor, decodeTaskRecord, optional, tasksActor } from "../src/canisters.ts";
 import { decodeTwoOutcome } from "../src/escrow.ts";
 import { type ChainAddresses, createAtaIx, donateIx, ed25519VerifyIx, twoOutcomeClaimIx, twoOutcomeCreateIx } from "../src/ix.ts";
-import { TASK_CHOICE, taskMessage, twoOutcomeVerdictMessage } from "../src/messages.ts";
+import { DEADLINE_MARGIN, TASK_CHOICE, taskMessage, twoOutcomeVerdictMessage, VOTING_PERIOD } from "../src/messages.ts";
 import { balancesOf, formatUsdc, send } from "../src/net.ts";
 import { type Signer, burnerSigner } from "../src/signer.ts";
 
 const DONATE = 100_000n; // the vote's weight floor is 100000
 const GROSS = 30_000n;
 const DURATION = 600n;
-const VOTING_PERIOD = 120n;
-const DEADLINE_MARGIN = 259_200n;
 
 function config(): Record<string, string> {
   const toml = readFileSync(new URL("../config/local.toml", import.meta.url), "utf8");
@@ -50,7 +48,7 @@ const sleep = (seconds: number) => new Promise((resolve) => setTimeout(resolve, 
 
 async function main(): Promise<void> {
   const cfg = config();
-  const chainId = cfg.chainId ?? cfg.id ?? "solana-devnet";
+  const chainId = cfg.id ?? "solana-devnet";
   const addresses: ChainAddresses = {
     splitter: new PublicKey(cfg.splitter ?? ""),
     usdc: new PublicKey(cfg.usdc ?? ""),

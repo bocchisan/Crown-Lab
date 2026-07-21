@@ -11,15 +11,13 @@ import { hex } from "../src/bytes.ts";
 import { asBytes, decodeCollectionRecord, optional } from "../src/canisters.ts";
 import { decodeTwoOutcome } from "../src/escrow.ts";
 import { createAtaIx, ed25519VerifyIx, twoOutcomeClaimIx, twoOutcomeCreateIx } from "../src/ix.ts";
-import { FUNDING_CHOICE, collectionId, collectionMessage, twoOutcomeVerdictMessage } from "../src/messages.ts";
+import { collectionId, collectionMessage, DEADLINE_MARGIN, FUNDING_CHOICE, twoOutcomeVerdictMessage, VOTING_PERIOD } from "../src/messages.ts";
 import { balancesOf, formatUsdc, send } from "../src/net.ts";
 import { context, show, sleep } from "./context.ts";
 
 const CONTRIBUTION = 30_000n;
 const GOAL = 1_000_000n;
 const DURATION = 300n;
-const VOTING_PERIOD = 120n;
-const DEADLINE_MARGIN = 259_200n;
 
 async function main(): Promise<void> {
   const lab = await context();

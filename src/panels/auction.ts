@@ -20,16 +20,14 @@ import { decodeTwoOutcome, refuseIfSettled } from "../escrow.ts";
 import { createAtaIx, ed25519VerifyIx, twoOutcomeClaimIx, twoOutcomeCreateIx, twoOutcomeRefundIx } from "../ix.ts";
 import { type Lab, participantByAddress } from "../lab.ts";
 import { explorerAddress, explorerTx, formatUsdc, send } from "../net.ts";
-import { AUCTION_CHOICE, auctionId, auctionMessage, lotId, twoOutcomeVerdictMessage } from "../messages.ts";
+import { AUCTION_CHOICE, auctionId, auctionMessage, DEADLINE_MARGIN, lotId, twoOutcomeVerdictMessage, VOTING_PERIOD } from "../messages.ts";
 import { type AuctionEntry, type LotEntry, load, update } from "../store.ts";
 import { button, el, field, labeled, link, log, logLink, row, section, short, span } from "../ui.ts";
 import { participantSelect, refreshBalances, selectedSigner } from "./participants.ts";
 
 /** The game's profile on testnet (config/testnet.toml: voting_period = 120). */
-const VOTING_PERIOD = 120n;
 /** Frozen in the game's logic crate: the registration rule demands
  * deadline ≥ created + duration + perform_window + voting_period + 72h. */
-const DEADLINE_MARGIN = 259_200n;
 
 export function auctionPanel(lab: Lab): HTMLElement {
   const recipient = participantSelect(lab);

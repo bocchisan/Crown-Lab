@@ -20,12 +20,12 @@ import {
   collectionId,
   collectionMessage,
   twoOutcomeVerdictMessage,
+  DEADLINE_MARGIN,
 } from "../messages.ts";
 import { type CollectionEntry, load, update } from "../store.ts";
 import { button, el, field, labeled, link, log, logLink, row, section, short, span } from "../ui.ts";
 import { participantSelect, refreshBalances, selectedSigner } from "./participants.ts";
 
-const DEADLINE_MARGIN = 259_200n;
 
 export function fundingPanel(lab: Lab): HTMLElement {
   const recipient = participantSelect(lab);

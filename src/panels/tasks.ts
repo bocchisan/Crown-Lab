@@ -14,7 +14,7 @@ import { decodeTwoOutcome, refuseIfSettled } from "../escrow.ts";
 import { createAtaIx, ed25519VerifyIx, twoOutcomeClaimIx, twoOutcomeCreateIx, twoOutcomeRefundIx } from "../ix.ts";
 import { type Lab, participantByAddress } from "../lab.ts";
 import { explorerAddress, explorerTx, formatUsdc, send } from "../net.ts";
-import { TASK_CHOICE, taskMessage, twoOutcomeVerdictMessage } from "../messages.ts";
+import { DEADLINE_MARGIN, TASK_CHOICE, taskMessage, twoOutcomeVerdictMessage } from "../messages.ts";
 import { type TaskEntry, load, update } from "../store.ts";
 import { button, el, field, labeled, link, log, logLink, row, section, short, span } from "../ui.ts";
 import { participantSelect, refreshBalances, selectedSigner } from "./participants.ts";
@@ -22,7 +22,6 @@ import { participantSelect, refreshBalances, selectedSigner } from "./participan
 /** The canister's own floor (config/testnet.toml: min_gross = 34). */
 const MIN_GROSS = 34n;
 /** Frozen in the game's logic crate. */
-const DEADLINE_MARGIN = 259_200n;
 
 let resolverHex = "";
 

@@ -82,6 +82,6 @@ if (errors.length > 0) {
 }
 await browser.close();
 
-const ok = !stillLoading && errors.length === 0 && panels.length >= 5 && seeded;
+const ok = !stillLoading && errors.length === 0 && panels.length >= 6 && seeded;
 console.log(ok ? "\n✓ страница загрузилась чисто" : "\n✗ страница не в порядке");
 process.exit(ok ? 0 : 1);

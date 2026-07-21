@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Brings up the lab's replica: one replica for all five canisters, so the
-# three games and the book can be driven from one page.
+# Brings up the lab's replica: one replica for all six canisters, so the
+# four games and the book can be driven from one page.
 #
 # Deliberately WITHOUT --clean. A game canister's resolver is its threshold
 # key, and on a local replica that key is derived from the canister id. Wiping
@@ -19,8 +19,8 @@
 # the sequence aligned. They are created, never installed.
 #
 # The check below is the point: if an id drifts from the one recorded in
-# .dfx/local/canister_ids.json, the resolver is a different key and every live
-# escrow is stranded until refund. The script says so instead of quietly
+# .dfx/local/canister-ids.expected, the resolver is a different key and every
+# live escrow is stranded until refund. The script says so instead of quietly
 # carrying on.
 #
 # Usage: scripts/lab-up.sh            — bring up / top up
