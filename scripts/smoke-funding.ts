@@ -159,10 +159,10 @@ async function main(): Promise<void> {
 
   // ---- 6. the book credits the CONTRIBUTOR ----
   const expected = bookBefore + CONTRIBUTION - fee;
-  await lab.index.ingest_hint();
-  process.stdout.write("жду ингеста расчёта (будильник позвонил)");
+  process.stdout.write("пушу подпись расчёта, жду её в книге");
   let final = 0n;
   for (let attempt = 0; attempt < 30; attempt++) {
+    await lab.relay.submit(tx);
     final = await lab.index.get_reputation(lab.chainId, donor.publicKey, recipient.publicKey);
     if (final >= expected) break;
     process.stdout.write(".");

@@ -8,8 +8,8 @@
     },
     "crown-index": {
       "type": "custom",
-      "wasm": "../Crown-Core/target/wasm32-unknown-unknown/release/crown_index.wasm",
-      "candid": "../Crown-Core/index/crown-index.did",
+      "wasm": "../Crown-Index/target/wasm32-unknown-unknown/release/crown_index.wasm",
+      "candid": "../Crown-Index/index/crown-index.did",
       "build": []
     },
     "conditional-tasks": {
@@ -36,28 +36,34 @@
       "candid": "../crown-games/Auction/canister/auction.did",
       "build": []
     },
+    "crown-relay": {
+      "type": "custom",
+      "wasm": "../Crown-Relay/target/wasm32-unknown-unknown/release/crown_relay.wasm",
+      "candid": "../Crown-Relay/relay/crown-relay.did",
+      "build": []
+    },
     "pad1": {
       "type": "custom",
-      "wasm": "../Crown-Core/target/wasm32-unknown-unknown/release/crown_index.wasm",
-      "candid": "../Crown-Core/index/crown-index.did",
+      "wasm": "../Crown-Index/target/wasm32-unknown-unknown/release/crown_index.wasm",
+      "candid": "../Crown-Index/index/crown-index.did",
       "build": []
     },
     "pad2": {
       "type": "custom",
-      "wasm": "../Crown-Core/target/wasm32-unknown-unknown/release/crown_index.wasm",
-      "candid": "../Crown-Core/index/crown-index.did",
+      "wasm": "../Crown-Index/target/wasm32-unknown-unknown/release/crown_index.wasm",
+      "candid": "../Crown-Index/index/crown-index.did",
       "build": []
     },
     "pad3": {
       "type": "custom",
-      "wasm": "../Crown-Core/target/wasm32-unknown-unknown/release/crown_index.wasm",
-      "candid": "../Crown-Core/index/crown-index.did",
+      "wasm": "../Crown-Index/target/wasm32-unknown-unknown/release/crown_index.wasm",
+      "candid": "../Crown-Index/index/crown-index.did",
       "build": []
     },
     "pad4": {
       "type": "custom",
-      "wasm": "../Crown-Core/target/wasm32-unknown-unknown/release/crown_index.wasm",
-      "candid": "../Crown-Core/index/crown-index.did",
+      "wasm": "../Crown-Index/target/wasm32-unknown-unknown/release/crown_index.wasm",
+      "candid": "../Crown-Index/index/crown-index.did",
       "build": []
     }
   }

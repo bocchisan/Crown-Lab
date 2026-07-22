@@ -7,6 +7,7 @@
 
 import { Actor, type ActorSubclass, type Agent, HttpAgent } from "@dfinity/agent";
 import { IDL } from "@dfinity/candid";
+import type { Principal } from "@dfinity/principal";
 
 const Blob = IDL.Vec(IDL.Nat8);
 const result = (ok: IDL.Type) => IDL.Variant({ Ok: ok, Err: IDL.Text });
@@ -35,23 +36,22 @@ export async function agentFor(host: string): Promise<Agent> {
 
 // ---- crown-index ----------------------------------------------------------
 
+// This is the business Crown-Index: the book is filled by paid pushes through
+// crown-relay, not by polling. So there is no alarm clock and no cursor — the
+// exactly-once state is the applied-signature set (index-spec §7).
 const crownIndexIdl: IDL.InterfaceFactory = () =>
   IDL.Service({
-    // The one non-query method of the core: an empty, permissionless alarm
-    // clock that can only pull the next chain read closer (core-spec §5).
-    ingest_hint: IDL.Func([], [], []),
     get_reputation: IDL.Func([IDL.Text, Blob, Blob], [IDL.Nat], ["query"]),
-    get_cursor: IDL.Func([IDL.Text], [IDL.Opt(IDL.Text)], ["query"]),
+    get_applied_count: IDL.Func([], [IDL.Nat64], ["query"]),
     get_reduce_version: IDL.Func([], [IDL.Nat32], ["query"]),
     get_anomaly_count: IDL.Func([], [IDL.Nat64], ["query"]),
   });
 
 export interface CrownIndexActor {
-  /** Ring the alarm clock: the book reads the chain sooner, nothing else. */
-  ingest_hint(): Promise<void>;
   /** book[(chain, donor, recipient)] — minor units of USDC that reached the recipient. */
   get_reputation(chain: string, donor: Uint8Array, recipient: Uint8Array): Promise<bigint>;
-  get_cursor(chain: string): Promise<Opt<string>>;
+  /** Signatures included in the book so far (replaces the old cursor). */
+  get_applied_count(): Promise<bigint>;
   get_reduce_version(): Promise<number>;
   /** Transactions the cross-check refused. Anything but 0 is a bug worth reading. */
   get_anomaly_count(): Promise<bigint>;
@@ -59,6 +59,33 @@ export interface CrownIndexActor {
 
 export function crownIndexActor(agent: Agent, canisterId: string): CrownIndexActor {
   return Actor.createActor(crownIndexIdl, { agent, canisterId }) as ActorSubclass<CrownIndexActor>;
+}
+
+// ---- crown-relay ----------------------------------------------------------
+// The platform's paid pusher: submit(signature) forwards to crown-index's
+// ingest_settlement with cycles. An ordinary call — the caller attaches nothing.
+
+const IngestResult = IDL.Variant({ Applied: IDL.Nat32, Rejected: IDL.Text });
+const SubmitResult = IDL.Variant({ Forwarded: IngestResult, Refused: IDL.Text });
+
+const crownRelayIdl: IDL.InterfaceFactory = () =>
+  IDL.Service({
+    submit: IDL.Func([IDL.Text], [SubmitResult], []),
+    get_index: IDL.Func([], [IDL.Opt(IDL.Principal)], ["query"]),
+  });
+
+export type SubmitResultTS =
+  | { Forwarded: { Applied: number } | { Rejected: string } }
+  | { Refused: string };
+
+export interface CrownRelayActor {
+  /** Pay to include one settlement by signature; the relayer attaches the cycles. */
+  submit(signature: string): Promise<SubmitResultTS>;
+  get_index(): Promise<Opt<Principal>>;
+}
+
+export function crownRelayActor(agent: Agent, canisterId: string): CrownRelayActor {
+  return Actor.createActor(crownRelayIdl, { agent, canisterId }) as ActorSubclass<CrownRelayActor>;
 }
 
 // ---- conditional-tasks ----------------------------------------------------

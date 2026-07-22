@@ -11,12 +11,14 @@ import chainConfig from "virtual:crown-config";
 import {
   type AuctionActor,
   type CrownIndexActor,
+  type CrownRelayActor,
   type FundingActor,
   type SubscriptionActor,
   type TasksActor,
   agentFor,
   auctionActor,
   crownIndexActor,
+  crownRelayActor,
   fundingActor,
   subscriptionActor,
   tasksActor,
@@ -26,6 +28,7 @@ import { type Signer, burnerSigner, loadBurners } from "./signer.ts";
 
 export type CanisterName =
   | "crownIndex"
+  | "crownRelay"
   | "conditionalTasks"
   | "conditionalFunding"
   | "auction"
@@ -41,6 +44,7 @@ export function canisterIds(): Record<CanisterName, string> {
   >;
   return {
     crownIndex: stored.crownIndex || baked.crownIndex,
+    crownRelay: stored.crownRelay || baked.crownRelay,
     conditionalTasks: stored.conditionalTasks || baked.conditionalTasks,
     conditionalFunding: stored.conditionalFunding || baked.conditionalFunding,
     auction: stored.auction || baked.auction,
@@ -67,6 +71,7 @@ export interface Lab {
   icHost: string;
   ids: Record<CanisterName, string>;
   index: CrownIndexActor | null;
+  relay: CrownRelayActor | null;
   tasks: TasksActor | null;
   funding: FundingActor | null;
   auction: AuctionActor | null;
@@ -102,6 +107,7 @@ export async function buildLab(refresh: () => void): Promise<Lab> {
     icHost: config.icHost,
     ids,
     index: ids.crownIndex ? crownIndexActor(agent, ids.crownIndex) : null,
+    relay: ids.crownRelay ? crownRelayActor(agent, ids.crownRelay) : null,
     tasks: ids.conditionalTasks ? tasksActor(agent, ids.conditionalTasks) : null,
     funding: ids.conditionalFunding ? fundingActor(agent, ids.conditionalFunding) : null,
     auction: ids.auction ? auctionActor(agent, ids.auction) : null,

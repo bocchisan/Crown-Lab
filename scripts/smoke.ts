@@ -16,7 +16,7 @@ import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 
 import { fromHex, hex, utf8 } from "../src/bytes.ts";
-import { asBytes, crownIndexActor, decodeTaskRecord, optional, tasksActor } from "../src/canisters.ts";
+import { asBytes, crownIndexActor, crownRelayActor, decodeTaskRecord, optional, tasksActor } from "../src/canisters.ts";
 import { decodeTwoOutcome } from "../src/escrow.ts";
 import { type ChainAddresses, createAtaIx, donateIx, ed25519VerifyIx, twoOutcomeClaimIx, twoOutcomeCreateIx } from "../src/ix.ts";
 import { DEADLINE_MARGIN, TASK_CHOICE, taskMessage, twoOutcomeVerdictMessage, VOTING_PERIOD } from "../src/messages.ts";
@@ -61,6 +61,7 @@ async function main(): Promise<void> {
   const agent = await HttpAgent.create({ host: cfg.ic_host ?? "", shouldFetchRootKey: true });
   const tasks = tasksActor(agent, cfg.conditional_tasks ?? "");
   const index = crownIndexActor(agent, cfg.crown_index ?? "");
+  const relay = crownRelayActor(agent, cfg.crown_relay ?? "");
   const canisterId = cfg.conditional_tasks ?? "";
 
   const donor = keypairSigner(`${homedir()}/.cache/crown-e2e/donor.json`, "донор");
@@ -142,12 +143,13 @@ async function main(): Promise<void> {
     console.log(`✓ ${method}`);
   }
 
-  // ---- 4. the book must see the donate before the vote is weighed ----
-  await index.ingest_hint();
-  process.stdout.write("жду ингеста доната в книгу (будильник позвонил)");
+  // ---- 4. the book must see the donate: the relayer pushes its signature,
+  //         retried until the transaction finalizes and applies ----
+  process.stdout.write("пушу подпись доната, жду её в книге");
   const afterIngest = baseline + DONATE;
   let reputation = 0n;
   for (let attempt = 0; attempt < 30; attempt++) {
+    await relay.submit(donateSig);
     reputation = await index.get_reputation(chainId, donor.publicKey, recipient.publicKey);
     if (reputation >= afterIngest) break;
     process.stdout.write(".");
@@ -210,10 +212,10 @@ async function main(): Promise<void> {
 
   // ---- 8. the book credits the DONOR for the game settlement ----
   const expected = afterIngest + GROSS - fee;
-  await index.ingest_hint();
-  process.stdout.write("жду ингеста расчёта игры (будильник позвонил)");
+  process.stdout.write("пушу подпись расчёта, жду её в книге");
   let final = 0n;
   for (let attempt = 0; attempt < 30; attempt++) {
+    await relay.submit(claimSig);
     final = await index.get_reputation(chainId, donor.publicKey, recipient.publicKey);
     if (final >= expected) break;
     process.stdout.write(".");

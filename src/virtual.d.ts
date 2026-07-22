@@ -13,6 +13,7 @@ declare module "virtual:crown-config" {
     feeWallet: string;
     icHost: string;
     crownIndex: string;
+    crownRelay: string;
     conditionalTasks: string;
     conditionalFunding: string;
     auction: string;

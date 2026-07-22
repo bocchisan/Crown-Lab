@@ -122,9 +122,10 @@ async function main(): Promise<void> {
 
   // ---- 5. the book sees the released chunk and nothing else ----
   const expected = bookBefore + CHUNK - fee;
-  process.stdout.write("жду ингеста выпуска");
+  process.stdout.write("пушу подпись выпуска, жду её в книге");
   let final = 0n;
   for (let attempt = 0; attempt < 30; attempt++) {
+    await lab.relay.submit(releaseTx);
     final = await lab.index.get_reputation(lab.chainId, donor.publicKey, owner.publicKey);
     if (final >= expected) break;
     process.stdout.write(".");

@@ -34,6 +34,7 @@ function chainConfig() {
     feeWallet: value("fee_wallet"),
     icHost: value("ic_host"),
     crownIndex: value("crown_index"),
+    crownRelay: value("crown_relay"),
     conditionalTasks: value("conditional_tasks"),
     conditionalFunding: value("conditional_funding"),
     auction: value("auction"),

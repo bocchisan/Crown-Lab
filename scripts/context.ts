@@ -16,10 +16,12 @@ import bs58 from "bs58";
 
 import {
   type CrownIndexActor,
+  type CrownRelayActor,
   type FundingActor,
   type SubscriptionActor,
   type TasksActor,
   crownIndexActor,
+  crownRelayActor,
   fundingActor,
   subscriptionActor,
   tasksActor,
@@ -34,8 +36,9 @@ export interface LabContext {
   feeBps: number;
   feeWallet: PublicKey;
   domains: { twoOutcome: string; stream: string };
-  ids: { crownIndex: string; tasks: string; funding: string; subscription: string };
+  ids: { crownIndex: string; crownRelay: string; tasks: string; funding: string; subscription: string };
   index: CrownIndexActor;
+  relay: CrownRelayActor;
   tasks: TasksActor;
   funding: FundingActor;
   subscription: SubscriptionActor;
@@ -76,11 +79,13 @@ export async function context(): Promise<LabContext> {
     domains: { twoOutcome: `crown:two-outcome:${chainId}`, stream: `crown:stream:${chainId}` },
     ids: {
       crownIndex: cfg.crown_index ?? "",
+      crownRelay: cfg.crown_relay ?? "",
       tasks: cfg.conditional_tasks ?? "",
       funding: cfg.conditional_funding ?? "",
       subscription: cfg.subscription ?? "",
     },
     index: crownIndexActor(agent, cfg.crown_index ?? ""),
+    relay: crownRelayActor(agent, cfg.crown_relay ?? ""),
     tasks: tasksActor(agent, cfg.conditional_tasks ?? ""),
     funding: fundingActor(agent, cfg.conditional_funding ?? ""),
     subscription: subscriptionActor(agent, cfg.subscription ?? ""),

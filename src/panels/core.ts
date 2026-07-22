@@ -7,13 +7,14 @@ import { PublicKey } from "@solana/web3.js";
 import { type CanisterName, type Lab, setCanisterId } from "../lab.ts";
 import { createAtaIx, donateIx } from "../ix.ts";
 import { explorerAddress, explorerTx, formatUsdc, send } from "../net.ts";
-import { optional } from "../canisters.ts";
 import { button, el, field, labeled, link, log, logLink, row, section, short, span } from "../ui.ts";
 import { participantSelect, refreshBalances, selectedSigner } from "./participants.ts";
 
 /** Cached so the book line survives a re-render without re-querying. */
 let bookLine = "нажми «читать книгу»";
 let statusLine = "";
+/** The last donate's signature, waiting to be pushed into the book. */
+let lastSignature: string | null = null;
 
 export function corePanel(lab: Lab): HTMLElement {
   const from = participantSelect(lab);
@@ -36,21 +37,29 @@ export function corePanel(lab: Lab): HTMLElement {
         createAtaIx(new PublicKey(donor.publicKey), recipientKey, lab.addresses.usdc),
         donateIx(new PublicKey(donor.publicKey), recipientKey, gross, lab.addresses),
       ]);
+      lastSignature = signature;
       logLink(
         `донат ${amount.value} USDC: ${donor.label} → ${recipient.label} (весь gross, комиссии нет)`,
         "tx",
         explorerTx(signature),
         "ok",
       );
-      log("книга увидит его после финализации; звонок будильника приблизит чтение", "muted");
+      log("подпись запомнена; после финализации нажми «записать в книгу»", "muted");
       await refreshBalances(lab);
     }),
-    // The core's only non-query method: an empty alarm clock. It cannot put
-    // anything into the book — only pull the next chain read closer.
-    button("будильник (ingest_hint)", async () => {
-      if (!lab.index) throw new Error("canister id crown-index не задан");
-      await lab.index.ingest_hint();
-      log("будильник позвонил: следующий ингест — на границе зазора (HINT_GAP 60 с)", "ok");
+    // The push: the relayer pays to include this donate's signature. The caller
+    // attaches no cycles — the relayer does, from its budget (relay-spec §2).
+    button("записать в книгу (relay.submit)", async () => {
+      if (!lab.relay) throw new Error("canister id crown-relay не задан");
+      if (!lastSignature) throw new Error("сначала сделай донат — нужна его подпись");
+      const result = await lab.relay.submit(lastSignature);
+      if ("Refused" in result) throw new Error(`релеер отказал: ${result.Refused}`);
+      const forwarded = result.Forwarded;
+      if ("Rejected" in forwarded) {
+        log(`индекс отверг: ${forwarded.Rejected} — не финализирован? повтори через пару секунд`, "wait");
+      } else {
+        log(`записано в книгу: ${forwarded.Applied} сеттлмент(ов)`, "ok");
+      }
     }),
   );
 
@@ -67,9 +76,9 @@ export function corePanel(lab: Lab): HTMLElement {
       const s = selectedSigner(lab, recipient);
       const reputation = await lab.index.get_reputation(lab.chainId, p.publicKey, s.publicKey);
       const anomalies = await lab.index.get_anomaly_count();
-      const cursor = optional(await lab.index.get_cursor(lab.chainId));
+      const applied = await lab.index.get_applied_count();
       bookLine = `${p.label} → ${s.label}: ${formatUsdc(reputation)} USDC репутации (${reputation} minor)`;
-      statusLine = `аномалий: ${anomalies} · курсор: ${cursor ? short(cursor) : "—"} · reduce v${await lab.index.get_reduce_version()}`;
+      statusLine = `аномалий: ${anomalies} · применённых подписей: ${applied} · reduce v${await lab.index.get_reduce_version()}`;
       log(bookLine, "ok");
       if (anomalies > 0n) log(`аномалий ${anomalies} — сверка события с переводом не сошлась`, "bad");
       lab.refresh();
@@ -105,6 +114,7 @@ export function corePanel(lab: Lab): HTMLElement {
 function canisterRow(lab: Lab): HTMLElement {
   const names: [CanisterName, string][] = [
     ["crownIndex", "crown-index"],
+    ["crownRelay", "crown-relay"],
     ["conditionalTasks", "задания"],
     ["conditionalFunding", "сбор"],
     ["auction", "аукцион"],
